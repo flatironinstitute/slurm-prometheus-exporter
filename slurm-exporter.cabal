@@ -1,0 +1,33 @@
+name:                slurm-exporter
+version:             0.1.0.0
+synopsis:            prometheus exporter of slurm job metrics
+description:         web server for prometheus metrics collected from slurm resource data
+homepage:            https://github.com/flatironinstitute/slurm-exporter#readme
+license:             Apache-2.0
+author:              Dylan Simon
+maintainer:          dylan@dylex.net
+copyright:           2019 Simons Foundation
+category:            Web
+build-type:          Simple
+cabal-version:       >=1.10
+
+executable slurm-exporter
+  hs-source-dirs:      .
+  main-is:             Main.hs
+  other-modules:
+    Prometheus,
+    Slurm,
+    User
+  default-language:    Haskell2010
+  build-depends:       base >= 4.7 && < 5,
+    bytestring,
+    containers,
+    transformers,
+    unix,
+    time,
+    text,
+    http-types,
+    wai,
+    warp,
+    prometheus
+  pkgconfig-depends: slurm

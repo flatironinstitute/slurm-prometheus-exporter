@@ -1,0 +1,6 @@
+resolver: lts-14.2
+packages:
+- .
+extra-deps:
+- prometheus-2.1.2
+allow-newer: true
