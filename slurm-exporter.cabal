@@ -17,8 +17,10 @@ executable slurm-exporter
   other-modules:
     Prometheus,
     Slurm,
+    Job,
     User
   default-language:    Haskell2010
+  ghc-options:         -Wall
   build-depends:       base >= 4.7 && < 5,
     bytestring,
     containers,
@@ -31,3 +33,4 @@ executable slurm-exporter
     warp,
     prometheus
   pkgconfig-depends: slurm
+  -- extra-libraries: slurm
