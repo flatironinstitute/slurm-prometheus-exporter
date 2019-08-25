@@ -12,6 +12,7 @@ module Slurm.Node
   , nodeStateReboot
   , nodeStateRes
   , NodeInfo(..)
+  , unknownNodeInfo
   , slurmLoadNodes
   ) where
 
@@ -39,6 +40,7 @@ foreign import ccall unsafe slurm_get_select_nodeinfo :: Ptr DynamicPluginData -
 newtype NodeState = NodeState Word32
   deriving (Storable, Show)
 #enum NodeState, NodeState, \
+  NODE_STATE_UNKNOWN,	\
   NODE_STATE_DOWN,	\
   NODE_STATE_IDLE,	\
   NODE_STATE_ALLOCATED,	\
@@ -59,10 +61,20 @@ instance Eq NodeState where
 data NodeInfo = NodeInfo
   { nodeInfoName :: !NodeName
   , nodeInfoState :: !NodeState
+  , nodeInfoCPUs :: !Word16
   , nodeInfoLoad :: Maybe Word32
   , nodeInfoTRES :: !BS.ByteString
   , nodeInfoTRESAlloc :: !BS.ByteString
   } deriving (Show)
+
+unknownNodeInfo :: NodeInfo
+unknownNodeInfo = NodeInfo
+  mempty
+  nodeStateUnknown
+  0
+  Nothing
+  mempty
+  mempty
 
 instance Storable NodeInfo where
   sizeOf _    = #size node_info_t
@@ -70,6 +82,7 @@ instance Storable NodeInfo where
   peek p = NodeInfo
     <$> (packCString =<< (#peek node_info_t, name) p)
     <*> (#peek node_info_t, node_state) p
+    <*> (#peek node_info_t, cpus) p
     <*> (mfilter (/= #const NO_VAL) . Just <$> (#peek node_info_t, cpu_load) p)
     <*> (packCString =<< (#peek node_info_t, tres_fmt_str) p)
     <*> (with nullPtr $ \datap -> do

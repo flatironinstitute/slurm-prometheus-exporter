@@ -2,35 +2,52 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Job
-  ( jobClassLabels
+  ( Job(..)
+  , jobFromInfo
+  , jobClassLabels
   , Alloc(..)
   , accountJobs
   ) where
 
 import           Control.Arrow (first)
 import qualified Data.ByteString as BS
-import           Data.List (foldl')
+import           Data.Fixed (Fixed(..), Centi)
+import           Data.Function (on)
+import           Data.List (foldl', maximumBy)
 import qualified Data.Map.Strict as Map
+import           Data.Maybe (fromMaybe)
 
 import Slurm
 import Prometheus
 import TRES
 import Node
 
+data Job = Job
+  { jobInfo :: JobInfo
+  , jobNodes :: [Node]
+  }
+
+jobFromInfo :: NodeMap -> JobInfo -> Job
+jobFromInfo nm j = Job j
+  $ map (\n -> fromMaybe (nodeFromName n) $ Map.lookup n nm)
+  $ foldMap expandHostList $ jobInfoNodes j
+
 data Alloc = Alloc
   { allocJob :: !Word
   , allocTRES :: !TRES
+  , allocLoad :: !Centi
   } deriving (Show)
 
 instance Semigroup Alloc where
-  Alloc j1 t1 <> Alloc j2 t2 =
-    Alloc (j1 + j2) (t1 <> t2)
+  Alloc j1 t1 l1 <> Alloc j2 t2 l2 =
+    Alloc (j1 + j2) (t1 <> t2) (l1 + l2)
 
 instance Monoid Alloc where
-  mempty = Alloc 0 mempty
+  mempty = Alloc 0 mempty 0
 
-jobAlloc :: JobInfo -> Alloc
-jobAlloc = Alloc 1 . parseTRES . jobInfoTRES
+jobAlloc :: Job -> Alloc
+jobAlloc j = Alloc 1 (parseTRES $ jobInfoTRES $ jobInfo j)
+  $ sum $ map (maybe 0 (MkFixed . fromIntegral) . nodeInfoLoad . nodeInfo) (jobNodes j)
 
 data JobClass
   = JobPending
@@ -44,15 +61,22 @@ data JobClass
     , jobUser :: !BS.ByteString
     , jobNodeClass :: !BS.ByteString
     }
-  | JobStopped
   deriving (Eq, Ord, Show)
 
-jobClass :: JobInfo -> JobClass
-jobClass JobInfo{..}
-  | jobInfoState == jobPending = JobPending jobInfoAccount jobInfoPartition jobInfoUser
-  | jobInfoState == jobRunning = JobRunning jobInfoAccount jobInfoPartition jobInfoUser
-    (foldMap (nodeClass . head . expandHostList) jobInfoNodes) -- XXX only first node
-  | otherwise = JobStopped
+-- |Like nub but with counts.
+rle :: Eq a => [a] -> [(a, Int)]
+rle [] = []
+rle (x:l) = (x,succ c) : rle r where
+  (c, r) = countx 0 l
+  countx n (y:z) | y == x = countx (succ n) z
+  countx n z = (n, z)
+
+jobClass :: Job -> Maybe JobClass
+jobClass Job{ jobInfo = JobInfo{..}, .. }
+  | jobInfoState == jobPending = Just $ JobPending jobInfoAccount jobInfoPartition jobInfoUser
+  | jobInfoState == jobRunning = Just $ JobRunning jobInfoAccount jobInfoPartition jobInfoUser
+    $ if null jobNodes then mempty else fst $ maximumBy (compare `on` snd) $ rle $ map nodeClass jobNodes
+  | otherwise = Nothing
 
 jobClassLabels :: JobClass -> Labels
 jobClassLabels JobPending{..} =
@@ -68,10 +92,10 @@ jobClassLabels JobRunning{..} =
   , ("user", jobUser)
   , ("nodes", jobNodeClass)
   ]
-jobClassLabels JobStopped =
-  [ ("state", "stopped")
-  ]
 
-accountJobs :: [JobInfo] -> [(Labels, Alloc)]
+accountJobs :: [Job] -> [(Labels, Alloc)]
 accountJobs = map (first jobClassLabels) . Map.toList .
-  foldl' (\a j -> Map.insertWith (<>) (jobClass j) (jobAlloc j) a) Map.empty
+  foldl' (\a j -> maybe id
+      (\c -> Map.insertWith (<>) c (jobAlloc j))
+      (jobClass j) a)
+    Map.empty
