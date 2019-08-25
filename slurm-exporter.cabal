@@ -17,6 +17,13 @@ executable slurm-exporter
   other-modules:
     Prometheus,
     Slurm,
+    Slurm.Internal,
+    Slurm.Hostlist,
+    Slurm.Stats,
+    Slurm.Job,
+    Slurm.Node,
+    TRES,
+    Node,
     Job,
     User
   default-language:    Haskell2010

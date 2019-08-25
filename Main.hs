@@ -11,6 +11,7 @@ import qualified Network.Wai.Handler.Warp as Warp
 
 import Slurm
 import Prometheus
+import TRES
 import Job
 
 type Exporter = PrometheusT IO ()
@@ -45,17 +46,23 @@ jobs = prefix "job" $ do
   let ja = accountJobs jl
   prefix "usage" $ do
     let f a n h = gauge n (Just h) (map (second a) ja) (Just $ realToFrac jt)
-    f allocJob  "jobs"  "count of active jobs"
-    f allocNode "nodes" "count of allocated nodes"
-    f allocCPU  "cpus"  "count of allocated CPU cores"
-    f allocMem  "bytes" "count of allocated memory"
-    f allocGPU  "gpus"  "count of allocated GPUs"
+    f             allocJob   "jobs"  "count of active jobs"
+    f (tresNode . allocTRES) "nodes" "count of allocated nodes"
+    f (tresCPU  . allocTRES) "cpus"  "count of allocated CPU cores"
+    f (tresMem  . allocTRES) "bytes" "count of allocated memory"
+    f (tresGPU  . allocTRES) "gpus"  "count of allocated GPUs"
+
+nodes :: Exporter
+nodes = prefix "node" $ do
+  (nt, nl) <- liftIO slurmLoadNodes
+  return ()
 
 exporters :: [(T.Text, Exporter)]
 exporters =
   [ ("stats", stats)
   , ("jobs", jobs)
-  , ("metrics", stats >> jobs)
+  , ("nodes", nodes)
+  , ("metrics", stats >> jobs >> nodes)
   ]
 
 main :: IO ()
