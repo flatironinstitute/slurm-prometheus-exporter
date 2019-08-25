@@ -10,6 +10,7 @@ module Slurm.Node
   , nodeStateDrain
   , nodeStateMaint
   , nodeStateReboot
+  , nodeStateRes
   , NodeInfo(..)
   , slurmLoadNodes
   ) where
@@ -42,6 +43,7 @@ newtype NodeState = NodeState Word32
   NODE_STATE_IDLE,	\
   NODE_STATE_ALLOCATED,	\
   NODE_STATE_MIXED,     \
+  NODE_STATE_RES,       \
   NODE_STATE_DRAIN,     \
   NODE_STATE_MAINT,     \
   NODE_STATE_REBOOT

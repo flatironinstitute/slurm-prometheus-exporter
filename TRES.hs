@@ -17,12 +17,25 @@ data TRES = TRES
   , tresNode :: !Word16
   } deriving (Show)
 
+instance Num TRES where
+  TRES c1 m1 g1 n1 + TRES c2 m2 g2 n2 =
+    TRES (c1 + c2) (m1 + m2) (g1 + g2) (n1 + n2)
+  TRES c1 m1 g1 n1 - TRES c2 m2 g2 n2 =
+    TRES (c1 - c2) (m1 - m2) (g1 - g2) (n1 - n2)
+  TRES c1 m1 g1 n1 * TRES c2 m2 g2 n2 =
+    TRES (c1 * c2) (m1 * m2) (g1 * g2) (n1 * n2)
+  negate (TRES c m g n) = 
+    TRES (negate c) (negate m) (negate g) (negate n)
+  signum (TRES c m g n) = 
+    TRES (signum c) (signum m) (signum g) (signum n)
+  fromInteger n =
+    TRES 0 0 0 (fromInteger n)
+
 instance Semigroup TRES where
-  TRES n1 c1 m1 g1 <> TRES n2 c2 m2 g2 =
-    TRES (n1 + n2) (c1 + c2) (m1 + m2) (g1 + g2)
+  (<>) = (+)
 
 instance Monoid TRES where
-  mempty = TRES 0 0 0 0
+  mempty = 0
 
 parseTRES :: BS.ByteString -> TRES
 parseTRES s = foldMap br $ BSC.split ',' s where

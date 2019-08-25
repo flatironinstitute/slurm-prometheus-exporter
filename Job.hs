@@ -30,7 +30,7 @@ instance Monoid Alloc where
   mempty = Alloc 0 mempty
 
 jobAlloc :: JobInfo -> Alloc
-jobAlloc = Alloc 0 . parseTRES . jobInfoTRES
+jobAlloc = Alloc 1 . parseTRES . jobInfoTRES
 
 data JobClass
   = JobPending

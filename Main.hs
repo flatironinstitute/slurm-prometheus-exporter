@@ -13,6 +13,7 @@ import Slurm
 import Prometheus
 import TRES
 import Job
+import Node
 
 type Exporter = PrometheusT IO ()
 
@@ -55,7 +56,13 @@ jobs = prefix "job" $ do
 nodes :: Exporter
 nodes = prefix "node" $ do
   (nt, nl) <- liftIO slurmLoadNodes
-  return ()
+  let na = accountNodes nl
+  prefix "usage" $ do
+    let f a n = gauge n Nothing (map (second a) na) (Just $ realToFrac nt)
+    f tresNode "nodes" 
+    f tresCPU  "cpus"  
+    f tresMem  "bytes" 
+    f tresGPU  "gpus" 
 
 exporters :: [(T.Text, Exporter)]
 exporters =
