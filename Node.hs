@@ -40,7 +40,7 @@ data Node = Node
   , nodeClass :: NodeName
   , nodeTRES :: TRES 
   , nodeAlloc :: Alloc
-  }
+  } deriving (Show)
 
 nodeFromName :: NodeName -> Node
 nodeFromName n = Node unknownNodeInfo{ nodeInfoName = n } (nodeNameClass n) mempty mempty
@@ -50,7 +50,7 @@ nodeFromInfo n@NodeInfo{..} = Node n (nodeNameClass nodeInfoName)
   (parseTRES nodeInfoTRES){ tresNode = 1 }
   (Alloc (parseTRES nodeInfoTRESAlloc){ tresNode = alloc } alloc
     (MkFixed $ maybe 0 toInteger nodeInfoLoad)
-    (nodeInfoMem - nodeInfoMemFree))
+    (1024 * 1024 * (nodeInfoMem - nodeInfoMemFree)))
   where
   alloc :: Integral i => i
   alloc = if nodeInfoState == nodeStateAllocated then 1 else 0

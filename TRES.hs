@@ -10,6 +10,7 @@ module TRES
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import           Data.Fixed (Centi)
+import           Data.String (IsString)
 import           Data.Word (Word16, Word32, Word64)
 
 data TRES = TRES
@@ -50,8 +51,10 @@ parseTRES s = foldMap br $ BSC.split ',' s where
   pt "mem" (pn -> Just n) = mempty{ tresMem = fromInteger n }
   pt "gres/gpu" (pn -> Just n) = mempty{ tresGPU = fromInteger n }
   pt _ _ = mempty
-  pn (BSC.readInteger -> Just (n, flip lookup units -> Just u)) = Just (u * n)
+  pn (BSC.readInteger -> Just (n, flip lookup units -> Just u)) = Just $ u * n
+  pn (reads . BSC.unpack -> [(n, flip lookup units -> Just u)]) = Just $ round $ u * (n :: Double)
   pn _ = Nothing
+  units :: (IsString u, Num n) => [(u, n)]
   units = zip ["","K","M","G","T","P"] $ iterate (1024*) 1
 
 data Alloc = Alloc

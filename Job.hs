@@ -23,7 +23,7 @@ data Job = Job
   { jobInfo :: !JobInfo
   , jobNodes :: [Node]
   , jobAlloc :: Alloc
-  }
+  } deriving (Show)
 
 jobFromInfo :: NodeMap -> JobInfo -> Job
 jobFromInfo nm j@JobInfo{..} = Job j nodes
