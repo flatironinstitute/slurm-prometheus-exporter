@@ -37,7 +37,6 @@ executable slurm-exporter
     text,
     http-types,
     wai,
-    warp,
-    prometheus
+    warp
   pkgconfig-depends: slurm
   -- extra-libraries: slurm
