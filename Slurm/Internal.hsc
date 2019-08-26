@@ -6,11 +6,12 @@ import           Control.Concurrent.MVar (MVar, newMVar, withMVar, modifyMVar)
 import           Control.Monad ((<=<), mfilter)
 import qualified Data.ByteString as BS
 import           Data.Foldable (fold)
+import           Data.Maybe (fromMaybe)
 import           Foreign.C.String (CString, peekCString, withCString)
 import           Foreign.C.Types (CInt(..), CTime(..))
 import           Foreign.ForeignPtr (ForeignPtr, newForeignPtr, withForeignPtr)
 import           Foreign.Marshal.Alloc (alloca)
-import           Foreign.Marshal.Utils (with)
+import           Foreign.Marshal.Utils (with, maybePeek)
 import           Foreign.Ptr (Ptr, FunPtr, nullPtr)
 import           Foreign.Storable (Storable(..), peek)
 import           System.IO.Error (ioError, userError)
@@ -30,7 +31,7 @@ maybePtr :: Ptr a -> Maybe (Ptr a)
 maybePtr = mfilter (/= nullPtr) . Just
 
 maybeCString :: CString -> IO (Maybe BS.ByteString)
-maybeCString = mapM BS.packCString . maybePtr
+maybeCString = maybePeek BS.packCString
 
 packCString :: CString -> IO BS.ByteString
 packCString = fmap fold . maybeCString
@@ -62,8 +63,7 @@ loadWhenChanged :: MVar (ForeignPtr a)
   -> (Ptr a -> IO b) -> IO b
 loadWhenChanged mv load free lastup f = modifyMVar mv $ \info ->
   alloca $ \resp -> do
-    prev <- withForeignPtr info $ \infop ->
-      maybe (return 0) lastup $ maybePtr infop
+    prev <- withForeignPtr info $ fmap (fromMaybe 0) . maybePeek lastup
     err <- checkError $ load prev resp
     info' <- maybe
       (newForeignPtr free =<< peek resp)

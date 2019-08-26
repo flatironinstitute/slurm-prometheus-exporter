@@ -5,6 +5,16 @@ module Slurm.Job
   ( JobState
   , jobPending
   , jobRunning
+  , jobSuspended
+  , jobComplete
+  , jobCancelled
+  , jobFailed
+  , jobTimeout
+  , jobNodeFail
+  , jobPreempted
+  , jobBootFail
+  , jobDeadline
+  , jobOOM
   , JobInfo(..)
   , slurmLoadJobs
   ) where
@@ -29,7 +39,17 @@ newtype JobState = JobState Word32
   deriving (Storable, Show)
 #enum JobState, JobState, \
   JOB_PENDING, \
-  JOB_RUNNING
+  JOB_RUNNING, \
+  JOB_SUSPENDED,\
+  JOB_COMPLETE,	\
+  JOB_CANCELLED,\
+  JOB_FAILED,	\
+  JOB_TIMEOUT,	\
+  JOB_NODE_FAIL,\
+  JOB_PREEMPTED,\
+  JOB_BOOT_FAIL,\
+  JOB_DEADLINE,	\
+  jobOOM = JOB_OOM
 
 -- sort of a hacky, assymetric, broken "equals"
 instance Eq JobState where

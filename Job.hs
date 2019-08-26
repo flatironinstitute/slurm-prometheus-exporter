@@ -4,14 +4,11 @@
 module Job
   ( Job(..)
   , jobFromInfo
-  , jobClassLabels
-  , Alloc(..)
+  , JobClass(..)
   , accountJobs
   ) where
 
-import           Control.Arrow (first)
 import qualified Data.ByteString as BS
-import           Data.Fixed (Fixed(..), Centi)
 import           Data.Function (on)
 import           Data.List (foldl', maximumBy)
 import qualified Data.Map.Strict as Map
@@ -23,79 +20,78 @@ import TRES
 import Node
 
 data Job = Job
-  { jobInfo :: JobInfo
+  { jobInfo :: !JobInfo
   , jobNodes :: [Node]
+  , jobAlloc :: Alloc
   }
 
 jobFromInfo :: NodeMap -> JobInfo -> Job
-jobFromInfo nm j = Job j
-  $ map (\n -> fromMaybe (nodeFromName n) $ Map.lookup n nm)
-  $ foldMap expandHostList $ jobInfoNodes j
-
-data Alloc = Alloc
-  { allocJob :: !Word
-  , allocTRES :: !TRES
-  , allocLoad :: !Centi
-  } deriving (Show)
-
-instance Semigroup Alloc where
-  Alloc j1 t1 l1 <> Alloc j2 t2 l2 =
-    Alloc (j1 + j2) (t1 <> t2) (l1 + l2)
-
-instance Monoid Alloc where
-  mempty = Alloc 0 mempty 0
-
-jobAlloc :: Job -> Alloc
-jobAlloc j = Alloc 1 (parseTRES $ jobInfoTRES $ jobInfo j)
-  $ sum $ map (maybe 0 (MkFixed . fromIntegral) . nodeInfoLoad . nodeInfo) (jobNodes j)
+jobFromInfo nm j@JobInfo{..} = Job j nodes
+  $ nalloc
+    { allocTRES = tres
+    , allocJob = 1
+    }
+  where
+  tres = parseTRES jobInfoTRES
+  nodes = map (\n -> fromMaybe (nodeFromName n) $ Map.lookup n nm) $
+    foldMap expandHostList jobInfoNodes
+  nalloc = case map nodeAlloc nodes of
+    -- scale used load and memory by fraction of allocation (assumes only shared single-nodes)
+    [alloc] | f < 1 -> alloc
+      { allocLoad = realToFrac $ f * realToFrac (allocLoad alloc)
+      , allocMem  = round      $ f * realToFrac (allocMem alloc)
+      } where f = realToFrac (tresCPU tres) / realToFrac (tresCPU (allocTRES alloc)) :: Float
+    allocs -> sum allocs
 
 data JobClass
-  = JobPending
-    { jobAccount :: !BS.ByteString
-    , jobPartition :: !BS.ByteString
-    , jobUser :: !BS.ByteString
-    }
-  | JobRunning
-    { jobAccount :: !BS.ByteString
-    , jobPartition :: !BS.ByteString
-    , jobUser :: !BS.ByteString
-    , jobNodeClass :: !BS.ByteString
-    }
+  = JobRunning
+  | JobPending
   deriving (Eq, Ord, Show)
+
+instance Labeled JobClass where
+  label JobRunning = "running"
+  label JobPending = "pending"
+
+data JobDesc = JobDesc
+  { jobClass :: !JobClass
+  , jobAccount :: !BS.ByteString
+  , jobPartition :: !BS.ByteString
+  , jobUser :: !BS.ByteString
+  , jobNodeClass :: !BS.ByteString
+  } deriving (Eq, Ord, Show)
 
 -- |Like nub but with counts.
 rle :: Eq a => [a] -> [(a, Int)]
 rle [] = []
-rle (x:l) = (x,succ c) : rle r where
-  (c, r) = countx 0 l
+rle (x:l) = (x,c) : rle r where
+  (c, r) = countx 1 l
   countx n (y:z) | y == x = countx (succ n) z
   countx n z = (n, z)
 
-jobClass :: Job -> Maybe JobClass
-jobClass Job{ jobInfo = JobInfo{..}, .. }
-  | jobInfoState == jobPending = Just $ JobPending jobInfoAccount jobInfoPartition jobInfoUser
-  | jobInfoState == jobRunning = Just $ JobRunning jobInfoAccount jobInfoPartition jobInfoUser
+jobDesc :: Job -> Maybe JobDesc
+jobDesc Job{ jobInfo = JobInfo{..}, .. } = do
+  c <- case jobInfoState of
+    s | s == jobRunning -> Just JobRunning
+      | s == jobPending -> Just JobPending
+      | otherwise -> Nothing
+  return $ JobDesc c jobInfoAccount jobInfoPartition jobInfoUser
     $ if null jobNodes then mempty else fst $ maximumBy (compare `on` snd) $ rle $ map nodeClass jobNodes
-  | otherwise = Nothing
 
-jobClassLabels :: JobClass -> Labels
-jobClassLabels JobPending{..} =
-  [ ("state", "pending")
-  , ("account", jobAccount)
+jobLabels :: JobDesc -> Labels
+jobLabels JobDesc{..} =
+  -- ("state", jobClassStr jobClass)
+  [ ("account", jobAccount)
   , ("partition", jobPartition)
   , ("user", jobUser)
-  ]
-jobClassLabels JobRunning{..} =
-  [ ("state", "running")
-  , ("account", jobAccount)
-  , ("partition", jobPartition)
-  , ("user", jobUser)
-  , ("nodes", jobNodeClass)
+  ] ++ 
+  if BS.null jobNodeClass then [] else
+  [ ("nodes", jobNodeClass)
   ]
 
-accountJobs :: [Job] -> [(Labels, Alloc)]
-accountJobs = map (first jobClassLabels) . Map.toList .
-  foldl' (\a j -> maybe id
+accountJobs :: [Job] -> [(JobClass, Labels, Alloc)]
+accountJobs = map (\(d, a) -> (jobClass d, jobLabels d, a))
+  . Map.toList
+  . foldl' (\a j -> maybe id
       (\c -> Map.insertWith (<>) c (jobAlloc j))
-      (jobClass j) a)
+      (jobDesc j) a)
     Map.empty

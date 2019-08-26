@@ -20,11 +20,11 @@ import           Control.Concurrent.MVar (MVar, newMVar)
 import           Control.Monad (mfilter)
 import           Data.Bits ((.&.), popCount)
 import qualified Data.ByteString as BS
-import           Data.Word (Word16, Word32)
+import           Data.Word (Word16, Word32, Word64)
 import           Foreign.C.Types (CInt(..), CTime(..))
 import           Foreign.ForeignPtr (ForeignPtr, newForeignPtr_)
+import           Foreign.Marshal.Alloc (alloca)
 import           Foreign.Marshal.Array (peekArray)
-import           Foreign.Marshal.Utils (with)
 import           Foreign.Ptr (Ptr, FunPtr, nullPtr)
 import           Foreign.Storable (Storable(..), peek)
 import qualified System.IO.Unsafe as Unsafe
@@ -34,8 +34,6 @@ import Slurm.Internal
 #include <slurm/slurm.h>
 
 data DynamicPluginData
-
-foreign import ccall unsafe slurm_get_select_nodeinfo :: Ptr DynamicPluginData -> CInt -> CInt -> Ptr a -> IO CInt
 
 newtype NodeState = NodeState Word32
   deriving (Storable, Show)
@@ -63,8 +61,10 @@ data NodeInfo = NodeInfo
   , nodeInfoState :: !NodeState
   , nodeInfoCPUs :: !Word16
   , nodeInfoLoad :: Maybe Word32
-  , nodeInfoTRES :: !BS.ByteString
+  , nodeInfoTRES
   , nodeInfoTRESAlloc :: !BS.ByteString
+  , nodeInfoMem
+  , nodeInfoMemFree :: !Word64
   } deriving (Show)
 
 unknownNodeInfo :: NodeInfo
@@ -75,6 +75,18 @@ unknownNodeInfo = NodeInfo
   Nothing
   mempty
   mempty
+  0
+  0
+
+foreign import ccall unsafe slurm_get_select_nodeinfo :: Ptr DynamicPluginData -> CInt -> CInt -> Ptr a -> IO CInt
+
+getSelectNodeinfo :: Storable a => Ptr NodeInfo -> CInt -> CInt -> IO (Maybe a)
+getSelectNodeinfo np dt st = alloca $ \p -> do
+  dyn <- (#peek node_info_t, select_nodeinfo) np
+  r <- slurm_get_select_nodeinfo dyn dt st p
+  if r == 0
+    then Just <$> peek p
+    else return Nothing
 
 instance Storable NodeInfo where
   sizeOf _    = #size node_info_t
@@ -85,13 +97,13 @@ instance Storable NodeInfo where
     <*> (#peek node_info_t, cpus) p
     <*> (mfilter (/= #const NO_VAL) . Just <$> (#peek node_info_t, cpu_load) p)
     <*> (packCString =<< (#peek node_info_t, tres_fmt_str) p)
-    <*> (with nullPtr $ \datap -> do
-      dyn <- (#peek node_info_t, select_nodeinfo) p
-      _ <- slurm_get_select_nodeinfo dyn (#const SELECT_NODEDATA_TRES_ALLOC_FMT_STR) (#const NODE_STATE_ALLOCATED) datap
-      sp <- peek datap
-      s <- packCString sp
-      slurmFree sp
+    <*> (do
+      sp <- getSelectNodeinfo p (#const SELECT_NODEDATA_TRES_ALLOC_FMT_STR) (#const NODE_STATE_ALLOCATED)
+      s <- maybe (return mempty) packCString sp
+      mapM_ slurmFree sp
       return s)
+    <*> (#peek node_info_t, real_memory) p
+    <*> (#peek node_info_t, free_mem) p
   poke = error "poke NodeInfo not implemented"
 
 data NodeInfoMsg

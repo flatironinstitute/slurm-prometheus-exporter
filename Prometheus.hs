@@ -5,6 +5,7 @@
 module Prometheus
   ( PrometheusT
   , Labels
+  , Labeled(..)
   , counter
   , gauge
   , one
@@ -34,6 +35,9 @@ instance MonadTrans PrometheusT where
 type Str = BS.ByteString
 type Label = (Str, Str)
 type Labels = [Label]
+
+class Labeled a where
+  label :: a -> Str
 
 bc :: Char -> B.Builder
 bc = B.char7

@@ -7,13 +7,16 @@ module Node
   , Node(..)
   , NodeMap
   , nodeMap
+  , NodeRes(..)
   , accountNodes
   ) where
 
-import           Control.Arrow (first, (&&&))
+import           Control.Arrow ((&&&))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import           Data.Char (isAlpha, isDigit)
+import           Data.Fixed (Fixed(..))
+import           Data.List (foldl')
 import           Data.Maybe (fromMaybe)
 import qualified Data.Map.Strict as Map
 
@@ -34,55 +37,63 @@ nodeNameClass n
 
 data Node = Node
   { nodeInfo :: !NodeInfo
-  , nodeClass :: !NodeName
+  , nodeClass :: NodeName
+  , nodeTRES :: TRES 
+  , nodeAlloc :: Alloc
   }
 
 nodeFromName :: NodeName -> Node
-nodeFromName n = Node unknownNodeInfo{ nodeInfoName = n } (nodeNameClass n)
+nodeFromName n = Node unknownNodeInfo{ nodeInfoName = n } (nodeNameClass n) mempty mempty
 
 nodeFromInfo :: NodeInfo -> Node
-nodeFromInfo n = Node n (nodeNameClass $ nodeInfoName n)
+nodeFromInfo n@NodeInfo{..} = Node n (nodeNameClass nodeInfoName)
+  (parseTRES nodeInfoTRES){ tresNode = 1 }
+  (Alloc (parseTRES nodeInfoTRESAlloc){ tresNode = alloc } alloc
+    (MkFixed $ maybe 0 toInteger nodeInfoLoad)
+    (nodeInfoMem - nodeInfoMemFree))
+  where
+  alloc :: Integral i => i
+  alloc = if nodeInfoState == nodeStateAllocated then 1 else 0
 
 type NodeMap = Map.Map NodeName Node
 
 nodeMap :: [Node] -> NodeMap
 nodeMap = Map.fromList . map (nodeInfoName . nodeInfo &&& id)
 
-data ResState
+data NodeRes
   = ResAlloc
   | ResFree
   | ResDrain
   | ResResv
   | ResDown
-  deriving (Eq, Ord, Enum, Show)
+  deriving (Eq, Ord, Show)
 
-data NodeRes = NodeRes
-  { resNode :: !NodeName
-  , resState :: !ResState
+instance Labeled NodeRes where
+  label ResAlloc = "alloc"
+  label ResFree = "free"
+  label ResDrain = "drain"
+  label ResResv = "resv"
+  label ResDown = "down"
+
+data NodeDesc = NodeDesc
+  { descRes :: !NodeRes
+  , descClass :: !NodeName
   } deriving (Eq, Ord, Show)
 
-nodeResources :: Node -> [(NodeRes, TRES)]
-nodeResources Node{ nodeInfo = NodeInfo{..}, ..} = [n ResAlloc ares, n s (tres - ares)]
-  where
-  s | nodeInfoState == nodeStateDrain && nodeInfoState /= nodeStateReboot = ResDrain
-    | nodeInfoState == nodeStateDown = ResDown
-    | nodeInfoState == nodeStateRes = ResResv
-    | otherwise = ResFree
-  n = (,) . NodeRes nodeClass
-  tres = (parseTRES nodeInfoTRES){ tresNode = 1 }
-  ares = (parseTRES nodeInfoTRESAlloc){ tresNode = if nodeInfoState == nodeStateAllocated then 1 else 0 }
+type ResMap = Map.Map NodeDesc Alloc
 
-resLabels :: NodeRes -> Labels
-resLabels NodeRes{..} =
-  [ ("nodes", resNode)
-  , ("state", case resState of
-      ResAlloc -> "alloc"
-      ResFree -> "free"
-      ResDrain -> "drain"
-      ResResv -> "resv"
-      ResDown -> "down")
-  ]
-  
-accountNodes :: [Node] -> [(Labels, TRES)]
-accountNodes = map (first resLabels) . Map.toList .
-  Map.fromListWith (<>) . foldMap nodeResources
+addNode :: Node -> ResMap -> ResMap
+addNode Node{..} = ar ResAlloc nodeAlloc
+  . ar (case nodeInfoState nodeInfo of
+    s | s == nodeStateDrain && s /= nodeStateReboot -> ResDrain
+      | s == nodeStateDown -> ResDown
+      | s == nodeStateRes -> ResResv
+      | otherwise -> ResFree)
+    mempty{ allocTRES = nodeTRES - allocTRES nodeAlloc }
+  where
+  ar s = Map.insertWith (<>) (NodeDesc s nodeClass)
+
+accountNodes :: [Node] -> [(NodeRes, Labels, Alloc)]
+accountNodes = map (\(n, a) -> (descRes n, [("nodes", descClass n)], a))
+  . Map.toList
+  . foldl' (flip addNode) Map.empty
