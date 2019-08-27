@@ -12,28 +12,14 @@ module Node
   ) where
 
 import           Control.Arrow ((&&&))
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
-import           Data.Char (isAlpha, isDigit)
 import           Data.Fixed (Fixed(..))
 import           Data.List (foldl')
-import           Data.Maybe (fromMaybe)
 import qualified Data.Map.Strict as Map
 
 import Slurm
 import TRES
 import Prometheus
-
--- |Reduce a node name to some kind of classification. Specific to FI cluster config.
-nodeNameClass :: NodeName -> NodeName 
-nodeNameClass n
-  | not (BS.null a) = a
-  | not (BS.null d) = BS.take 1 d <> BSC.replicate (pred $ BS.length d) '0'
-  | otherwise = mempty
-  where
-  a = BSC.takeWhile isAlpha s
-  d = BSC.takeWhile isDigit s
-  s = fromMaybe n $ BS.stripPrefix "worker" n
 
 data Node = Node
   { nodeInfo :: !NodeInfo
@@ -43,10 +29,11 @@ data Node = Node
   } deriving (Show)
 
 nodeFromName :: NodeName -> Node
-nodeFromName n = Node unknownNodeInfo{ nodeInfoName = n } (nodeNameClass n) mempty mempty
+nodeFromName n = Node unknownNodeInfo{ nodeInfoName = n } mempty mempty mempty
 
 nodeFromInfo :: NodeInfo -> Node
-nodeFromInfo n@NodeInfo{..} = Node n (nodeNameClass nodeInfoName)
+nodeFromInfo n@NodeInfo{..} = Node n
+  (BSC.takeWhile (',' /=) nodeInfoFeatures)
   (parseTRES nodeInfoTRES){ tresNode = 1 }
   (Alloc (parseTRES nodeInfoTRESAlloc){ tresNode = alloc } alloc
     (MkFixed $ maybe 0 toInteger nodeInfoLoad)

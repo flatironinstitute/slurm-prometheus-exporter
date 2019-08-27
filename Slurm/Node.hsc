@@ -65,6 +65,7 @@ data NodeInfo = NodeInfo
   , nodeInfoTRESAlloc :: !BS.ByteString
   , nodeInfoMem
   , nodeInfoMemFree :: !Word64
+  , nodeInfoFeatures :: !BS.ByteString
   } deriving (Show)
 
 unknownNodeInfo :: NodeInfo
@@ -77,6 +78,7 @@ unknownNodeInfo = NodeInfo
   mempty
   0
   0
+  mempty
 
 foreign import ccall unsafe slurm_get_select_nodeinfo :: Ptr DynamicPluginData -> CInt -> CInt -> Ptr a -> IO CInt
 
@@ -104,6 +106,7 @@ instance Storable NodeInfo where
       return s)
     <*> (#peek node_info_t, real_memory) p
     <*> (#peek node_info_t, free_mem) p
+    <*> (packCString =<< (#peek node_info_t, features) p)
   poke = error "poke NodeInfo not implemented"
 
 data NodeInfoMsg
