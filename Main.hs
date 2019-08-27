@@ -46,7 +46,7 @@ stats = prefix "stats" $ do
       | StatsInfoUser{..} <- statsInfoRpcUser]) Nothing
 
 allocGauges :: (Eq a, Labeled a) => a -> Bool -> CTime -> [(a, Labels, Alloc)] -> Exporter
-allocGauges m c t la = do
+allocGauges m c _ la = do
   when c $ f    allocJob   lr "count" "count of active jobs"
   f (tresNode . allocTRES) lr "nodes" "count of allocated nodes"
   f (tresCPU  . allocTRES) lr "cpus"  "count of allocated CPU cores"
@@ -55,26 +55,26 @@ allocGauges m c t la = do
   f             allocLoad  ls "load"  "total load of allocated nodes"
   f             allocMem   ls "used_bytes" "total size of used memory"
   where
-  f a l n h = gauge n (Just h) (second a <$> l) (Just $ realToFrac t)
+  f a l n h = gauge n (Just h) (second a <$> l) Nothing
   (ls, lr) = (unlab &&& map lab) la
   unlab ((x, l, r) : s) | x == m = (l, r) : unlab s
   unlab _ = []
   lab (a, l, r) = (("state", label a) : l, r)
 
-jobs :: [Node] -> Exporter
-jobs nl = prefix "job" $ do
+jobs :: (CTime, [Node]) -> Exporter
+jobs (nt, nl) = prefix "job" $ do
   (jt, jil) <- liftIO slurmLoadJobs
   let nm = nodeMap nl
       jl = map (jobFromInfo nm) jil
-  allocGauges JobRunning True jt $ accountJobs jl
+  allocGauges JobRunning True (max nt jt) $ accountJobs jl
   -- TODO: sacct completed?
 
-nodes :: PrometheusT IO [Node]
+nodes :: PrometheusT IO (CTime, [Node])
 nodes = prefix "node" $ do
   (nt, nil) <- liftIO slurmLoadNodes
   let nl = map nodeFromInfo nil
   allocGauges ResAlloc False nt $ accountNodes nl
-  return nl
+  return (nt, nl)
 
 -- TODO: sreport?
 
@@ -82,7 +82,7 @@ exporters :: [(T.Text, Exporter)]
 exporters =
   [ ("stats", stats)
   , ("nodes", void nodes)
-  , ("jobs", jobs [])
+  , ("jobs", jobs (0, []))
   , ("metrics", stats >> nodes >>= jobs)
   ]
 
