@@ -1,8 +1,8 @@
-name:                slurm-exporter
+name:                slurm-prometheus-exporter
 version:             0.1.0.0
 synopsis:            prometheus exporter of slurm job metrics
 description:         web server for prometheus metrics collected from slurm resource data
-homepage:            https://github.com/flatironinstitute/slurm-exporter#readme
+homepage:            https://github.com/flatironinstitute/slurm-prometheus-exporter#readme
 license:             Apache-2.0
 author:              Dylan Simon
 maintainer:          dylan@dylex.net
@@ -10,6 +10,7 @@ copyright:           2019 Simons Foundation
 category:            Web
 build-type:          Simple
 cabal-version:       >=1.10
+extra-source-files:  README.md
 
 executable slurm-exporter
   hs-source-dirs:      .
