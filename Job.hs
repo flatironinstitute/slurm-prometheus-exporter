@@ -84,7 +84,7 @@ jobLabels JobDesc{..} =
   , ("partition", jobPartition)
   , ("user", jobUser)
   ] ++ 
-  if BS.null jobNodeClass then [] else
+  if jobClass == JobPending then [] else
   [ ("nodes", jobNodeClass)
   ]
 
