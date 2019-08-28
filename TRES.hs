@@ -12,6 +12,7 @@ import qualified Data.ByteString.Char8 as BSC
 import           Data.Fixed (Centi)
 import           Data.String (IsString)
 import           Data.Word (Word16, Word32, Word64)
+import           System.Posix.Types (EpochTime)
 
 data TRES = TRES
   { tresCPU :: !Word32
@@ -27,11 +28,11 @@ instance Num TRES where
     TRES (c1 - c2) (m1 - m2) (g1 - g2) (n1 - n2)
   TRES c1 m1 g1 n1 * TRES c2 m2 g2 n2 =
     TRES (c1 * c2) (m1 * m2) (g1 * g2) (n1 * n2)
-  abs (TRES c m g n) = 
+  abs (TRES c m g n) =
     TRES (abs c) (abs m) (abs g) (abs n)
-  negate (TRES c m g n) = 
+  negate (TRES c m g n) =
     TRES (negate c) (negate m) (negate g) (negate n)
-  signum (TRES c m g n) = 
+  signum (TRES c m g n) =
     TRES (signum c) (signum m) (signum g) (signum n)
   fromInteger n =
     TRES 0 0 0 (fromInteger n)
@@ -62,23 +63,24 @@ data Alloc = Alloc
   , allocJob :: !Word
   , allocLoad :: !Centi
   , allocMem :: !Word64 -- ^actually used memory
+  , allocTime :: !EpochTime
   } deriving (Show)
 
 instance Num Alloc where
-  Alloc c1 m1 g1 n1 + Alloc c2 m2 g2 n2 =
-    Alloc (c1 + c2) (m1 + m2) (g1 + g2) (n1 + n2)
-  Alloc c1 m1 g1 n1 - Alloc c2 m2 g2 n2 =
-    Alloc (c1 - c2) (m1 - m2) (g1 - g2) (n1 - n2)
-  Alloc c1 m1 g1 n1 * Alloc c2 m2 g2 n2 =
-    Alloc (c1 * c2) (m1 * m2) (g1 * g2) (n1 * n2)
-  abs (Alloc c m g n) = 
-    Alloc (abs c) (abs m) (abs g) (abs n)
-  negate (Alloc c m g n) = 
-    Alloc (negate c) (negate m) (negate g) (negate n)
-  signum (Alloc c m g n) = 
-    Alloc (signum c) (signum m) (signum g) (signum n)
+  Alloc c1 m1 g1 n1 t1 + Alloc c2 m2 g2 n2 t2 =
+    Alloc (c1 + c2) (m1 + m2) (g1 + g2) (n1 + n2) (t1 + t2)
+  Alloc c1 m1 g1 n1 t1 - Alloc c2 m2 g2 n2 t2 =
+    Alloc (c1 - c2) (m1 - m2) (g1 - g2) (n1 - n2) (t1 - t2)
+  Alloc c1 m1 g1 n1 t1 * Alloc c2 m2 g2 n2 t2 =
+    Alloc (c1 * c2) (m1 * m2) (g1 * g2) (n1 * n2) (t1 * t2)
+  abs (Alloc c m g n t) =
+    Alloc (abs c) (abs m) (abs g) (abs n) (abs t)
+  negate (Alloc c m g n t) =
+    Alloc (negate c) (negate m) (negate g) (negate n) (negate t)
+  signum (Alloc c m g n t) =
+    Alloc (signum c) (signum m) (signum g) (signum n) (signum t)
   fromInteger n =
-    Alloc 0 0 0 (fromInteger n)
+    Alloc 0 (fromInteger n) 0 0 0
 
 instance Semigroup Alloc where
   (<>) = (+)

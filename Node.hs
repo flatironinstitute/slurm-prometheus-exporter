@@ -16,6 +16,7 @@ import qualified Data.ByteString.Char8 as BSC
 import           Data.Fixed (Fixed(..))
 import           Data.List (foldl')
 import qualified Data.Map.Strict as Map
+import           System.Posix.Types (EpochTime)
 
 import Slurm
 import TRES
@@ -31,13 +32,17 @@ data Node = Node
 nodeFromName :: NodeName -> Node
 nodeFromName n = Node unknownNodeInfo{ nodeInfoName = n } mempty mempty mempty
 
-nodeFromInfo :: NodeInfo -> Node
-nodeFromInfo n@NodeInfo{..} = Node n
+nodeFromInfo :: EpochTime -> NodeInfo -> Node
+nodeFromInfo now n@NodeInfo{..} = Node n
   (BSC.takeWhile (',' /=) nodeInfoFeatures)
   (parseTRES nodeInfoTRES){ tresNode = 1 }
-  (Alloc (parseTRES nodeInfoTRESAlloc){ tresNode = alloc } alloc
-    (MkFixed $ maybe 0 toInteger nodeInfoLoad)
-    (1024 * 1024 * (nodeInfoMem - nodeInfoMemFree)))
+  Alloc
+    { allocTRES = (parseTRES nodeInfoTRESAlloc){ tresNode = alloc }
+    , allocJob = alloc
+    , allocLoad = MkFixed $ maybe 0 toInteger nodeInfoLoad
+    , allocMem = 1024 * 1024 * (nodeInfoMem - nodeInfoMemFree)
+    , allocTime = now - nodeInfoBootTime
+    }
   where
   alloc :: Integral i => i
   alloc = if nodeInfoState == nodeStateAllocated then 1 else 0

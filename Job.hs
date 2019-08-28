@@ -13,25 +13,40 @@ import           Data.Function (on)
 import           Data.List (foldl', maximumBy)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
+import           System.Posix.Types (EpochTime)
 
 import Slurm
 import Prometheus
 import TRES
 import Node
 
+data JobClass
+  = JobRunning
+  | JobPending
+  deriving (Eq, Ord, Show)
+
 data Job = Job
   { jobInfo :: !JobInfo
+  , jobState :: Maybe JobClass
   , jobNodes :: [Node]
   , jobAlloc :: Alloc
   } deriving (Show)
 
-jobFromInfo :: NodeMap -> JobInfo -> Job
-jobFromInfo nm j@JobInfo{..} = Job j nodes
-  $ nalloc
+jobFromInfo :: EpochTime -> NodeMap -> JobInfo -> Job
+jobFromInfo now nm j@JobInfo{..} = Job j state nodes
+  nalloc
     { allocTRES = tres
     , allocJob = 1
+    , allocTime = case state of
+        Nothing -> jobInfoEndTime - jobInfoStartTime
+        Just JobPending -> now - jobInfoSubmitTime
+        Just JobRunning -> now - jobInfoStartTime
     }
   where
+  state = case jobInfoState of
+    s | s == jobRunning -> Just JobRunning
+      | s == jobPending -> Just JobPending
+      | otherwise -> Nothing
   tres = parseTRES jobInfoTRES
   nodes = map (\n -> fromMaybe (nodeFromName n) $ Map.lookup n nm) $
     foldMap expandHostList jobInfoNodes
@@ -42,11 +57,6 @@ jobFromInfo nm j@JobInfo{..} = Job j nodes
       , allocMem  = round      $ f * realToFrac (allocMem alloc)
       } where f = realToFrac (tresCPU tres) / realToFrac (tresCPU (allocTRES alloc)) :: Float
     allocs -> sum allocs
-
-data JobClass
-  = JobRunning
-  | JobPending
-  deriving (Eq, Ord, Show)
 
 instance Labeled JobClass where
   label JobRunning = "running"
@@ -70,10 +80,7 @@ rle (x:l) = (x,c) : rle r where
 
 jobDesc :: Job -> Maybe JobDesc
 jobDesc Job{ jobInfo = JobInfo{..}, .. } = do
-  c <- case jobInfoState of
-    s | s == jobRunning -> Just JobRunning
-      | s == jobPending -> Just JobPending
-      | otherwise -> Nothing
+  c <- jobState
   return $ JobDesc c jobInfoAccount jobInfoPartition jobInfoUser
     $ if null jobNodes then mempty else fst $ maximumBy (compare `on` snd) $ rle $ map nodeClass jobNodes
 

@@ -12,6 +12,7 @@ import           Foreign.C.Types (CTime)
 import           Network.HTTP.Types (methodGet, notFound404, methodNotAllowed405)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
+import           System.Posix.Time (epochTime)
 
 import Slurm
 import Prometheus
@@ -48,10 +49,11 @@ stats = prefix "stats" $ do
 allocGauges :: (Eq a, Labeled a) => a -> Bool -> CTime -> [(a, Labels, Alloc)] -> Exporter
 allocGauges m c _ la = do
   when c $ f    allocJob   lr "count" "count of active jobs"
-  f (tresNode . allocTRES) lr "nodes" "count of allocated nodes"
-  f (tresCPU  . allocTRES) lr "cpus"  "count of allocated CPU cores"
-  f (tresMem  . allocTRES) lr "bytes" "total size of allocated memory"
-  f (tresGPU  . allocTRES) lr "gpus"  "count of allocated GPUs"
+  f (tresNode . allocTRES) lr "nodes" "count of allocated/requested nodes"
+  f (tresCPU  . allocTRES) lr "cpus"  "count of allocated/requested CPU cores"
+  f (tresMem  . allocTRES) lr "bytes" "total size of allocated/requested memory"
+  f (tresGPU  . allocTRES) lr "gpus"  "count of allocated/requested GPUs"
+  f             allocTime  lr "seconds" "total job run/wait time"
   f             allocLoad  ls "load"  "total load of allocated nodes"
   f             allocMem   ls "used_bytes" "total size of used memory"
   where
@@ -64,15 +66,17 @@ allocGauges m c _ la = do
 jobs :: (CTime, [Node]) -> Exporter
 jobs (nt, nl) = prefix "job" $ do
   (jt, jil) <- liftIO slurmLoadJobs
+  now <- liftIO epochTime
   let nm = nodeMap nl
-      jl = map (jobFromInfo nm) jil
+      jl = map (jobFromInfo now nm) jil
   allocGauges JobRunning True (max nt jt) $ accountJobs jl
   -- TODO: sacct completed?
 
 nodes :: PrometheusT IO (CTime, [Node])
 nodes = prefix "node" $ do
   (nt, nil) <- liftIO slurmLoadNodes
-  let nl = map nodeFromInfo nil
+  now <- liftIO epochTime
+  let nl = map (nodeFromInfo now) nil
   allocGauges ResAlloc False nt $ accountNodes nl
   return (nt, nl)
 

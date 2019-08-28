@@ -61,6 +61,7 @@ data NodeInfo = NodeInfo
   , nodeInfoState :: !NodeState
   , nodeInfoCPUs :: !Word16
   , nodeInfoLoad :: Maybe Word32
+  , nodeInfoBootTime :: !CTime
   , nodeInfoTRES
   , nodeInfoTRESAlloc :: !BS.ByteString
   , nodeInfoMem
@@ -74,6 +75,7 @@ unknownNodeInfo = NodeInfo
   nodeStateUnknown
   0
   Nothing
+  0
   mempty
   mempty
   0
@@ -98,6 +100,7 @@ instance Storable NodeInfo where
     <*> (#peek node_info_t, node_state) p
     <*> (#peek node_info_t, cpus) p
     <*> (mfilter (/= #const NO_VAL) . Just <$> (#peek node_info_t, cpu_load) p)
+    <*> (#peek node_info_t, boot_time) p
     <*> (packCString =<< (#peek node_info_t, tres_fmt_str) p)
     <*> (do
       sp <- getSelectNodeinfo p (#const SELECT_NODEDATA_TRES_ALLOC_FMT_STR) (#const NODE_STATE_ALLOCATED)
