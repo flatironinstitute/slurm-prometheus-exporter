@@ -76,6 +76,7 @@ type ResMap = Map.Map NodeDesc Alloc
 
 addNode :: Node -> ResMap -> ResMap
 addNode Node{..} = ar ResAlloc nodeAlloc
+    { allocTime = if alloc then allocTime nodeAlloc else 0 }
   . ar (case nodeInfoState nodeInfo of
     s | s == nodeStateDrain && s /= nodeStateReboot -> ResDrain
       | s == nodeStateDown -> ResDown
@@ -83,9 +84,10 @@ addNode Node{..} = ar ResAlloc nodeAlloc
       | otherwise -> ResFree)
     mempty
       { allocTRES = nodeTRES - allocTRES nodeAlloc
-      , allocTime = allocTime nodeAlloc
+      , allocTime = if alloc then 0 else allocTime nodeAlloc
       }
   where
+  alloc = tresNode (allocTRES nodeAlloc) /= 0
   ar s = Map.insertWith (<>) (NodeDesc s nodeClass)
 
 accountNodes :: [Node] -> [(NodeRes, Labels, Alloc)]
