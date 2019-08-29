@@ -41,7 +41,7 @@ nodeFromInfo now n@NodeInfo{..} = Node n
     , allocJob = alloc
     , allocLoad = MkFixed $ maybe 0 toInteger nodeInfoLoad
     , allocMem = 1024 * 1024 * (nodeInfoMem - nodeInfoMemFree)
-    , allocTime = now - nodeInfoBootTime
+    , allocTime = if nodeInfoBootTime == 0 then 0 else now - nodeInfoBootTime
     }
   where
   alloc :: Integral i => i
@@ -81,7 +81,10 @@ addNode Node{..} = ar ResAlloc nodeAlloc
       | s == nodeStateDown -> ResDown
       | s == nodeStateRes -> ResResv
       | otherwise -> ResFree)
-    mempty{ allocTRES = nodeTRES - allocTRES nodeAlloc }
+    mempty
+      { allocTRES = nodeTRES - allocTRES nodeAlloc
+      , allocTime = allocTime nodeAlloc
+      }
   where
   ar s = Map.insertWith (<>) (NodeDesc s nodeClass)
 
