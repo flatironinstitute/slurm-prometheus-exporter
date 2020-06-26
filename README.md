@@ -19,3 +19,10 @@ Node data is labeled by:
 - `state`: `alloc` (anything running on the node), `drain` (only if not set for reboot), `down`, `resv`, `free` (anything else)
 - `nodes`: first feature set on the node
 
+## Setup
+
+1. Install slurm headers and library so that it's discoverable by `pkg-config slurm` (you may have to set `PKG_CONFIG_PATH=$SLURM/lib/pkgconfig`) (only tested with 18.08)
+1. Install Haskell, ideally [stack](https://docs.haskellstack.org/en/stable/README/)
+1. `stack install`
+1. Run `slurm-exporter` anywhere you can run `squeue` (no need to be root or anything)
+1. Point prometheus to `http://HOST:8090/metrics` (or `/stats`, `/nodes`, `/jobs` for subsets), probably with a reduced scrape interval like 5m.
