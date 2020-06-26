@@ -12,6 +12,11 @@ build-type:          Simple
 cabal-version:       >=1.10
 extra-source-files:  README.md
 
+flag pkgconfig
+  description: Use pkg-config to find slurm (otherwise you must add it to extra-include-dirs and extra-lib-dirs)
+  manual: True
+  default: True
+
 executable slurm-exporter
   hs-source-dirs:      .
   main-is:             Main.hs
@@ -39,5 +44,7 @@ executable slurm-exporter
     http-types,
     wai,
     warp
-  pkgconfig-depends: slurm
-  -- extra-libraries: slurm
+  if flag(pkgconfig)
+    pkgconfig-depends: slurm
+  else
+    extra-libraries: slurm
