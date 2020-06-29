@@ -30,3 +30,5 @@ Node data is labeled by:
     - `stack install --flag slurm-prometheus-exporter:-pkgconfig --extra-lib-dirs=...slurm/lib --extra-include-dirs=...slurm/include`
 1. Run `slurm-exporter` anywhere you can run `squeue` (no need to be root or anything)
 1. Point prometheus to `http://HOST:8090/metrics` (or `/stats`, `/nodes`, `/jobs` for subsets), probably with a reduced scrape interval like 5m
+
+There are some grafana dashboards we use with this included in [grafana](grafana/).
