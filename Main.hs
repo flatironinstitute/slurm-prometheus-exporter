@@ -13,6 +13,9 @@ import           Network.HTTP.Types (methodGet, notFound404, methodNotAllowed405
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import           System.Posix.Time (epochTime)
+import qualified System.Console.GetOpt as Opt
+import           System.Environment (getProgName, getArgs)
+import           System.Exit (exitFailure)
 
 import Slurm
 import Prometheus
@@ -63,38 +66,66 @@ allocGauges m c _ la = do
   unlab _ = []
   lab (a, l, r) = (("state", label a) : l, r)
 
-jobs :: (CTime, [Node]) -> Exporter
-jobs (nt, nl) = prefix "job" $ do
+jobs :: Options -> (CTime, [Node]) -> Exporter
+jobs opts (nt, nl) = prefix "job" $ do
   (jt, jil) <- liftIO slurmLoadJobs
   now <- liftIO epochTime
   let nm = nodeMap nl
       jl = map (jobFromInfo now nm) jil
-  allocGauges JobRunning True (max nt jt) $ accountJobs jl
+  allocGauges JobRunning True (max nt jt) $ accountJobs opts jl
   -- TODO: sacct completed?
 
-nodes :: PrometheusT IO (CTime, [Node])
-nodes = prefix "node" $ do
+nodes :: Options -> PrometheusT IO (CTime, [Node])
+nodes opts = prefix "node" $ do
   (nt, nil) <- liftIO slurmLoadNodes
   now <- liftIO epochTime
   let nl = map (nodeFromInfo now) nil
-  allocGauges ResAlloc False nt $ accountNodes nl
+  allocGauges ResAlloc False nt $ accountNodes opts nl
   return (nt, nl)
 
 -- TODO: sreport?
 
-exporters :: [(T.Text, Exporter)]
-exporters =
+exporters :: Options -> [(T.Text, Exporter)]
+exporters opts =
   [ ("stats", stats)
-  , ("nodes", void nodes)
-  , ("jobs", jobs (0, []))
-  , ("metrics", stats >> nodes >>= jobs)
+  , ("nodes", void $ nodes opts)
+  , ("jobs", jobs opts (0, []))
+  , ("metrics", stats >> nodes opts >>= jobs opts)
+  ]
+
+defOptions :: Options
+defOptions = Options
+  { optPort = 8090
+  , optReason = False
+  , optJobId = False
+  }
+
+options :: [Opt.OptDescr (Options -> Options)]
+options =
+  [ Opt.Option "p" ["port"]
+      (Opt.ReqArg (\p o -> o{ optPort = (read p) }) "PORT")
+      ("listen on port [" ++ show (optPort defOptions) ++ "]")
+  , Opt.Option "r" ["reasons"]
+      (Opt.NoArg (\o -> o{ optReason = True }))
+      ("include node drain reasons (may increase prometheus database size)")
+  , Opt.Option "j" ["jobids"]
+      (Opt.NoArg (\o -> o{ optJobId = True }))
+      ("include job ids (may increase prometheus database size)")
   ]
 
 main :: IO ()
 main = do
-  Warp.run 8090 $ \req resp ->
+  prog <- getProgName
+  args <- getArgs
+  opts <- case Opt.getOpt Opt.Permute options args of
+    (o, [], []) -> return $ foldl (flip ($)) defOptions o
+    (_, _, err) -> do
+      mapM_ putStrLn err
+      putStrLn $ Opt.usageInfo ("Usage: " ++ prog ++ " [OPTIONS]\n") options
+      exitFailure
+  Warp.run (optPort opts) $ \req resp ->
     case Wai.pathInfo req of
-      [flip lookup exporters -> Just e]
+      [flip lookup (exporters opts) -> Just e]
         | Wai.requestMethod req == methodGet ->
           resp =<< response (prefix "slurm" e)
         | otherwise -> resp $ Wai.responseLBS methodNotAllowed405 [] mempty

@@ -12,6 +12,7 @@ module Prometheus
   , labeled
   , prefix
   , response
+  , Options(..)
   ) where
 
 import           Control.Monad.IO.Class (MonadIO)
@@ -87,3 +88,8 @@ response :: Monad m => PrometheusT m () -> m Wai.Response
 response p =
   Wai.responseBuilder ok200 [(hContentType, "text/plain; version=0.0.4")]
     <$> execWriterT (runReaderT (runPrometheusT p) mempty)
+
+data Options = Options
+  { optPort :: Int
+  , optReason, optJobId :: Bool
+  }

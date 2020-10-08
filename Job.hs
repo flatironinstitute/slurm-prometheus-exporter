@@ -9,10 +9,13 @@ module Job
   ) where
 
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as BSB
+import qualified Data.ByteString.Lazy as BSL
 import           Data.Function (on)
 import           Data.List (foldl', maximumBy)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
+import           Data.Word (Word32)
 import           System.Posix.Types (EpochTime)
 
 import Slurm
@@ -67,6 +70,7 @@ data JobDesc = JobDesc
   , jobAccount :: !BS.ByteString
   , jobPartition :: !BS.ByteString
   , jobUser :: !BS.ByteString
+  , jobId :: !Word32
   , jobNodeClass :: !BS.ByteString
   } deriving (Eq, Ord, Show)
 
@@ -78,27 +82,29 @@ rle (x:l) = (x,c) : rle r where
   countx n (y:z) | y == x = countx (succ n) z
   countx n z = (n, z)
 
-jobDesc :: Job -> Maybe JobDesc
-jobDesc Job{ jobInfo = JobInfo{..}, .. } = do
+jobDesc :: Options -> Job -> Maybe JobDesc
+jobDesc opts Job{ jobInfo = JobInfo{..}, .. } = do
   c <- jobState
   return $ JobDesc c jobInfoAccount jobInfoPartition jobInfoUser
+    (if optJobId opts then jobInfoId else 0)
     $ if null jobNodes then mempty else fst $ maximumBy (compare `on` snd) $ rle $ map nodeClass jobNodes
 
-jobLabels :: JobDesc -> Labels
-jobLabels JobDesc{..} =
+jobLabels :: Options -> JobDesc -> Labels
+jobLabels opts JobDesc{..} =
   -- ("state", jobClassStr jobClass)
   [ ("account", jobAccount)
   , ("partition", jobPartition)
   , ("user", jobUser)
   ] ++ 
-  if jobClass == JobPending then [] else
-  [ ("nodes", jobNodeClass)
-  ]
+  (if optJobId opts then
+  [ ("jobid", BSL.toStrict $ BSB.toLazyByteString $ BSB.word32Dec jobId) ] else []) ++
+  (if jobClass == JobPending then [] else
+  [ ("nodes", jobNodeClass) ])
 
-accountJobs :: [Job] -> [(JobClass, Labels, Alloc)]
-accountJobs = map (\(d, a) -> (jobClass d, jobLabels d, a))
+accountJobs :: Options -> [Job] -> [(JobClass, Labels, Alloc)]
+accountJobs opts = map (\(d, a) -> (jobClass d, jobLabels opts d, a))
   . Map.toList
   . foldl' (\a j -> maybe id
       (\c -> Map.insertWith (<>) c (jobAlloc j))
-      (jobDesc j) a)
+      (jobDesc opts j) a)
     Map.empty

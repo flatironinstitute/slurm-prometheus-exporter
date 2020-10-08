@@ -70,12 +70,13 @@ instance Labeled NodeRes where
 data NodeDesc = NodeDesc
   { descRes :: !NodeRes
   , descClass :: !NodeName
+  , descReason :: !BSC.ByteString
   } deriving (Eq, Ord, Show)
 
 type ResMap = Map.Map NodeDesc Alloc
 
-addNode :: Node -> ResMap -> ResMap
-addNode Node{..} = ar ResAlloc nodeAlloc
+addNode :: Options -> Node -> ResMap -> ResMap
+addNode opts Node{..} = ar ResAlloc nodeAlloc
     { allocTime = if alloc then allocTime nodeAlloc else 0 }
   . ar (case nodeInfoState nodeInfo of
     s | s == nodeStateDrain && s /= nodeStateReboot -> ResDrain
@@ -88,9 +89,13 @@ addNode Node{..} = ar ResAlloc nodeAlloc
       }
   where
   alloc = tresNode (allocTRES nodeAlloc) /= 0
-  ar s = Map.insertWith (<>) (NodeDesc s nodeClass)
+  ar s = Map.insertWith (<>) (NodeDesc s nodeClass $
+    if optReason opts then nodeInfoReason nodeInfo else BSC.empty)
 
-accountNodes :: [Node] -> [(NodeRes, Labels, Alloc)]
-accountNodes = map (\(n, a) -> (descRes n, [("nodes", descClass n)], a))
+accountNodes :: Options -> [Node] -> [(NodeRes, Labels, Alloc)]
+accountNodes opts = map (\(n, a) ->
+    ( descRes n
+    , (if optReason opts then (("reason", descReason n) :) else id) [("nodes", descClass n)]
+    , a))
   . Map.toList
-  . foldl' (flip addNode) Map.empty
+  . foldl' (flip $ addNode opts) Map.empty
