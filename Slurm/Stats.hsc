@@ -53,7 +53,8 @@ instance Storable StatsInfoResponseMsg where
     <*> (#peek stats_info_response_msg_t, jobs_running) p
     <*> (#peek stats_info_response_msg_t, job_states_ts) p
     <*> do
-      n <- (#peek stats_info_response_msg_t, rpc_user_size) p
+      nw <- (#peek stats_info_response_msg_t, rpc_user_size) p
+      let n = fromIntegral (nw :: Word32)
       zipWith3 StatsInfoUser
         <$> (mapM uidName =<< peekArray n =<< (#peek stats_info_response_msg_t, rpc_user_id) p)
         <*> (peekArray n =<< (#peek stats_info_response_msg_t, rpc_user_cnt) p)
