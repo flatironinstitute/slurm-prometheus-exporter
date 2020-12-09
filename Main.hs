@@ -87,7 +87,8 @@ nodes opts = prefix "node" $ do
 
 exporters :: Options -> [(T.Text, Exporter)]
 exporters opts =
-  [ ("stats", stats)
+  [ ("probe", return ())
+  , ("stats", stats)
   , ("nodes", void $ nodes opts)
   , ("jobs", jobs opts (0, []))
   , ("metrics", stats >> nodes opts >>= jobs opts)
