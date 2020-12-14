@@ -56,7 +56,7 @@ instance Storable StatsInfoResponseMsg where
       nw <- (#peek stats_info_response_msg_t, rpc_user_size) p
       let n = fromIntegral (nw :: Word32)
       zipWith3 StatsInfoUser
-        <$> (mapM uidName =<< peekArray n =<< (#peek stats_info_response_msg_t, rpc_user_id) p)
+        <$> (mapM (uidName Nothing) =<< peekArray n =<< (#peek stats_info_response_msg_t, rpc_user_id) p)
         <*> (peekArray n =<< (#peek stats_info_response_msg_t, rpc_user_cnt) p)
         <*> (peekArray n =<< (#peek stats_info_response_msg_t, rpc_user_time) p)
   poke = error "poke StatsInfoResponse not implemented"

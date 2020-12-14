@@ -21,10 +21,13 @@ type UserName = BS.ByteString
 uidCache :: MVar (Map.IntMap UserName)
 uidCache = Unsafe.unsafePerformIO $ newMVar Map.empty
 
-uidName :: Word32 -> IO UserName
-uidName uid = modifyMVar uidCache $ \cache ->
-  maybe (do
-    name <- BSC.pack <$> catchIOError (userName <$> getUserEntryForID (CUid uid)) (\_ -> return $ show uid)
-    return (Map.insert key name cache, name))
-    (return . (cache, )) $ Map.lookup key cache
+uidName :: Maybe UserName -> Word32 -> IO UserName
+uidName mname uid =
+  modifyMVar uidCache $ \cache -> maybe
+    (maybe (do
+        name <- BSC.pack <$> catchIOError (userName <$> getUserEntryForID (CUid uid)) (\_ -> return $ show uid)
+        return (Map.insert key name cache, name))
+      (return . (cache, )) $ Map.lookup key cache)
+    (\name -> return (Map.insert key name cache, name))
+    mname
   where key = fromIntegral uid

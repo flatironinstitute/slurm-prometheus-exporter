@@ -81,8 +81,9 @@ instance Storable JobInfo where
     <*> (maybeCString =<< (#peek slurm_job_info_t, nodes) p)
     <*> (packCString =<< (#peek slurm_job_info_t, account) p)
     <*> (packCString =<< (#peek slurm_job_info_t, partition) p)
-    <*> (maybe (uidName =<< (#peek slurm_job_info_t, user_id) p) return =<< maybeCString
-       =<< (#peek slurm_job_info_t, user_name) p)
+    <*> (do
+      name <- maybeCString =<< (#peek slurm_job_info_t, user_name) p
+      uidName name =<< (#peek slurm_job_info_t, user_id) p)
     <*> (#peek slurm_job_info_t, submit_time) p
     <*> (#peek slurm_job_info_t, start_time) p
     <*> (#peek slurm_job_info_t, end_time) p
