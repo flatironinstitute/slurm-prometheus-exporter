@@ -17,10 +17,13 @@ USER run
 WORKDIR /home/run
 COPY --chown=run stack.yaml *.cabal Setup.hs ./
 RUN stack build --dependencies-only
-COPY --chown=run *.hs README.md ./
+COPY --chown=run *.hs README.md docker-run ./
 COPY --chown=run Slurm ./Slurm
 RUN stack install --flag=slurm-prometheus-exporter:-pkgconfig --extra-include-dirs=/usr/local/include --extra-lib-dirs=/usr/local/lib
 
+USER root
+RUN useradd -u 450 slurm
+USER run
 ENV SLURM_CONF=/etc/slurm/slurm.conf
 EXPOSE 8090
-ENTRYPOINT ["/home/run/.local/bin/slurm-exporter"]
+ENTRYPOINT ["/home/run/docker-run"]

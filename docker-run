@@ -1,0 +1,5 @@
+#!/bin/sh -e
+cp $SLURM_CONF /tmp/slurm.conf
+export SLURM_CONF=/tmp/slurm.conf
+sed -i 's/^PrologFlags=/#PrologFlags=/' $SLURM_CONF
+exec /home/run/.local/bin/slurm-exporter "$@"
