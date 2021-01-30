@@ -21,7 +21,7 @@ Node data is labeled by:
 
 ## Setup
 
-1. Install slurm headers and library (only tested with 18.08)
+1. Install slurm headers and library (tested with 18.08, 20.02)
 1. Install Haskell, ideally [stack](https://docs.haskellstack.org/en/stable/README/)
 1. If you have the `slurm.pc` pkg-config file (usually included with rpm installs of slurm):
     - Make sure it's discoverable by `pkg-config slurm` (you may have to set `PKG_CONFIG_PATH=$SLURM/lib/pkgconfig`) 
@@ -29,6 +29,6 @@ Node data is labeled by:
 1. Otherwise, disable pkgconfig and manually specify the location of slurm:
     - `stack install --flag slurm-prometheus-exporter:-pkgconfig --extra-lib-dirs=...slurm/lib --extra-include-dirs=...slurm/include`
 1. Run `slurm-exporter` anywhere you can run `squeue` (no need to be root or anything)
-1. Point prometheus to `http://HOST:8090/metrics` (or `/stats`, `/nodes`, `/jobs` for subsets), probably with a reduced scrape interval like 5m
+1. Point prometheus to `http://HOST:8090/metrics` (or `/stats`, `/nodes`, `/jobs`, `/report` for subsets), probably with a reduced scrape interval like 5m
 
 There are some grafana dashboards we use with this included in [grafana](grafana/).
