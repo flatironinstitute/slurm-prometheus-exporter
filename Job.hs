@@ -82,29 +82,29 @@ rle (x:l) = (x,c) : rle r where
   countx n (y:z) | y == x = countx (succ n) z
   countx n z = (n, z)
 
-jobDesc :: Options -> Job -> Maybe JobDesc
-jobDesc opts Job{ jobInfo = JobInfo{..}, .. } = do
+jobDesc :: Bool -> Job -> Maybe JobDesc
+jobDesc withid Job{ jobInfo = JobInfo{..}, .. } = do
   c <- jobState
   return $ JobDesc c jobInfoAccount jobInfoPartition jobInfoUser
-    (if optJobId opts then jobInfoId else 0)
+    (if withid then jobInfoId else 0)
     $ if null jobNodes then mempty else fst $ maximumBy (compare `on` snd) $ rle $ map nodeClass jobNodes
 
-jobLabels :: Options -> JobDesc -> Labels
-jobLabels opts JobDesc{..} =
+jobLabels :: Bool -> JobDesc -> Labels
+jobLabels withid JobDesc{..} =
   -- ("state", jobClassStr jobClass)
   [ ("account", jobAccount)
   , ("partition", jobPartition)
   , ("user", jobUser)
   ] ++ 
-  (if optJobId opts then
+  (if withid then
   [ ("jobid", BSL.toStrict $ BSB.toLazyByteString $ BSB.word32Dec jobId) ] else []) ++
   (if jobClass == JobPending then [] else
   [ ("nodes", jobNodeClass) ])
 
-accountJobs :: Options -> [Job] -> [(JobClass, Labels, Alloc)]
-accountJobs opts = map (\(d, a) -> (jobClass d, jobLabels opts d, a))
+accountJobs :: Bool -> [Job] -> [(JobClass, Labels, Alloc)]
+accountJobs withid = map (\(d, a) -> (jobClass d, jobLabels withid d, a))
   . Map.toList
   . foldl' (\a j -> maybe id
       (\c -> Map.insertWith (<>) c (jobAlloc j))
-      (jobDesc opts j) a)
+      (jobDesc withid j) a)
     Map.empty

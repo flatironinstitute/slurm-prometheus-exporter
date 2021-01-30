@@ -75,8 +75,8 @@ data NodeDesc = NodeDesc
 
 type ResMap = Map.Map NodeDesc Alloc
 
-addNode :: Options -> Node -> ResMap -> ResMap
-addNode opts Node{..} = ar ResAlloc nodeAlloc
+addNode :: Bool -> Node -> ResMap -> ResMap
+addNode withreason Node{..} = ar ResAlloc nodeAlloc
     { allocTime = if alloc then allocTime nodeAlloc else 0 }
   . ar (case nodeInfoState nodeInfo of
     s | s == nodeStateDrain && s /= nodeStateReboot -> ResDrain
@@ -90,12 +90,12 @@ addNode opts Node{..} = ar ResAlloc nodeAlloc
   where
   alloc = tresNode (allocTRES nodeAlloc) /= 0
   ar s = Map.insertWith (<>) (NodeDesc s nodeClass $
-    if optReason opts then nodeInfoReason nodeInfo else BSC.empty)
+    if withreason then nodeInfoReason nodeInfo else BSC.empty)
 
-accountNodes :: Options -> [Node] -> [(NodeRes, Labels, Alloc)]
-accountNodes opts = map (\(n, a) ->
+accountNodes :: Bool -> [Node] -> [(NodeRes, Labels, Alloc)]
+accountNodes withreason = map (\(n, a) ->
     ( descRes n
-    , (if optReason opts then (("reason", descReason n) :) else id) [("nodes", descClass n)]
+    , (if withreason then (("reason", descReason n) :) else id) [("nodes", descClass n)]
     , a))
   . Map.toList
-  . foldl' (flip $ addNode opts) Map.empty
+  . foldl' (flip $ addNode withreason) Map.empty

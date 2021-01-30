@@ -3,10 +3,14 @@
 {-# LANGUAGE ViewPatterns #-}
 
 import           Control.Arrow ((&&&), second)
-import           Control.Monad (when)
+import           Control.Monad (when, mfilter)
 import           Control.Monad.IO.Class (liftIO)
+import           Control.Monad.Reader.Class (asks)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import           Data.Fixed (Fixed(..), Micro)
 import           Data.Functor (void)
+import           Data.Maybe (mapMaybe)
 import qualified Data.Text as T
 import           Foreign.C.Types (CTime)
 import           Network.HTTP.Types (methodGet, notFound404, methodNotAllowed405)
@@ -65,35 +69,40 @@ allocGauges m c _ la = do
   unlab _ = []
   lab (a, l, r) = (("state", label a) : l, r)
 
-jobs :: Options -> (CTime, [Node]) -> Exporter
-jobs opts (nt, nl) = prefix "job" $ do
+jobs :: (CTime, [Node]) -> Exporter
+jobs (nt, nl) = prefix "job" $ do
   (jt, jil) <- liftIO slurmLoadJobs
   now <- liftIO epochTime
   let nm = nodeMap nl
       jl = map (jobFromInfo now nm) jil
-  allocGauges JobRunning True (max nt jt) $ accountJobs opts jl
+  withids <- maybe (asks (optJobId . promOpts)) return =<< queryBool "jobids"
+  allocGauges JobRunning True (max nt jt) $ accountJobs withids jl
   -- TODO: sacct completed?
 
-nodes :: Options -> PrometheusT IO (CTime, [Node])
-nodes opts = prefix "node" $ do
+nodes :: PrometheusT IO (CTime, [Node])
+nodes = prefix "node" $ do
   (nt, nil) <- liftIO slurmLoadNodes
   now <- liftIO epochTime
   let nl = map (nodeFromInfo now) nil
-  allocGauges ResAlloc False nt $ accountNodes opts nl
+  withreason <- maybe (asks (optReason . promOpts)) return =<< queryBool "reasons"
+  allocGauges ResAlloc False nt $ accountNodes withreason nl
   return (nt, nl)
 
-report :: [String] -> Exporter
-report cl = prefix "report" $ slurmReport cl
+report :: Bool -> Exporter
+report al = do
+  rl <- query (if al then "cluster" else "report")
+  cl <- if null rl then asks (optReportClusters . promOpts) else return (mapMaybe (mfilter (not . BS.null)) rl)
+  when (al || not (null cl)) $ prefix "report" $ slurmReport cl
 
-exporters :: Options -> [(T.Text, Exporter)]
-exporters opts =
+exporters :: [(T.Text, Exporter)]
+exporters =
   [ ("probe", return ())
   , ("stats", stats)
-  , ("nodes", void $ nodes opts)
-  , ("jobs", jobs opts (0, []))
-  , ("report", report rl)
-  , ("metrics", stats >> nodes opts >>= jobs opts >> if null rl then return () else report rl)
-  ] where rl = optReportClusters opts
+  , ("nodes", void nodes)
+  , ("jobs", jobs (0, []))
+  , ("report", report True)
+  , ("metrics", stats >> nodes >>= jobs >> report False)
+  ]
 
 defOptions :: Options
 defOptions = Options
@@ -110,13 +119,13 @@ options =
       ("listen on port [" ++ show (optPort defOptions) ++ "]")
   , Opt.Option "r" ["reasons"]
       (Opt.NoArg (\o -> o{ optReason = True }))
-      ("include node drain reasons (may increase prometheus database size)")
+      ("include node drain reasons by default (may increase prometheus database size)")
   , Opt.Option "j" ["jobids"]
       (Opt.NoArg (\o -> o{ optJobId = True }))
-      ("include job ids (may increase prometheus database size)")
+      ("include job ids by default (may increase prometheus database size)")
   , Opt.Option "c" ["report"]
-      (Opt.ReqArg (\c o -> o{ optReportClusters = c : optReportClusters o }) "CLUSTER")
-      "include sreport data from CLUSTER (may be repeated)"
+      (Opt.ReqArg (\c o -> o{ optReportClusters = BSC.pack c : optReportClusters o }) "CLUSTER")
+      "include sreport data from CLUSTER by default (may be repeated)"
   ]
 
 main :: IO ()
@@ -131,8 +140,8 @@ main = do
       exitFailure
   Warp.run (optPort opts) $ \req resp ->
     case Wai.pathInfo req of
-      [flip lookup (exporters opts) -> Just e]
+      [flip lookup exporters -> Just e]
         | Wai.requestMethod req == methodGet ->
-          resp =<< response (prefix "slurm" e)
+          resp =<< response opts req (prefix "slurm" e)
         | otherwise -> resp $ Wai.responseLBS methodNotAllowed405 [] mempty
       _ -> resp $ Wai.responseLBS notFound404 [] mempty

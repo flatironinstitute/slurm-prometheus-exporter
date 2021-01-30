@@ -4,11 +4,14 @@ module Report
   ( slurmReport
   ) where
 
+import           Control.Applicative ((<|>))
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
+import           Data.Maybe (fromMaybe, fromJust)
 import           Data.Time.Calendar (toGregorian, fromGregorian)
 import           Data.Time.Clock.POSIX (POSIXTime, utcTimeToPOSIXSeconds)
+import           Data.Time.Format (parseTimeM, defaultTimeLocale)
 import           Data.Time.LocalTime (LocalTime(..), getTimeZone, TimeZone, localTimeToUTC, ZonedTime(..), getZonedTime, midnight)
 import           Foreign.C.Types (CTime(..))
 
@@ -21,6 +24,25 @@ unzonedTimeToPOSIX z0 l = do
   -- just hope doesn't cross boundary...
   return $ utcTimeToPOSIXSeconds $ localTimeToUTC z l
 
+parseTime :: LocalTime -> BS.ByteString -> LocalTime
+parseTime now "now" = now
+parseTime now "today" = LocalTime (localDay now) midnight
+parseTime now "day" = LocalTime (localDay now) midnight
+parseTime now "month" = let (y,m,_) = toGregorian (localDay now) in LocalTime (fromGregorian y m 1) midnight
+parseTime now "year" = let (y,_,_) = toGregorian (localDay now) in LocalTime (fromGregorian y 1 1) midnight
+parseTime _ s = fromJust $
+  try df <|> try dt <|> try (dt <> ":%S")
+  where
+  try f = parseTimeM True defaultTimeLocale f s'
+  s' = BSC.unpack s
+  df = "%Y-%-m-%-d"
+  dt = df <> "T%-H:%M"
+
+queryTime :: ZonedTime -> BS.ByteString -> BS.ByteString -> PrometheusT IO POSIXTime
+queryTime now d q = do
+  s <- fromMaybe d <$> query1 q
+  liftIO $ unzonedTimeToPOSIX (zonedTimeZone now) $ parseTime (zonedTimeToLocalTime now) s
+
 tresLabels :: TRESRec -> Labels
 tresLabels t = [("tres",
   (if BS.null (tresRecName t) then id else (<> ('/' `BSC.cons` tresRecName t)))
@@ -32,19 +54,16 @@ userLabels u = ("user", reportUserRecName u) :
     [] -> []
     (a:_) -> [("account",a)]
 
-clusterLabel :: ReportClusterRec -> Label
-clusterLabel c = ("cluster", reportClusterRecName c)
+clusterLabels :: ReportClusterRec -> Labels
+clusterLabels c = [("cluster", reportClusterRecName c)]
 
-slurmReport :: [String] -> Exporter
+slurmReport :: [BS.ByteString] -> Exporter
 slurmReport clusters = do
   now <- liftIO getZonedTime
   -- slurm goes faster if you query entire days
-  -- start at midnight jan 1 this year, local time
-  start <- liftIO $ unzonedTimeToPOSIX (zonedTimeZone now) $
-    let (y,_,_) = toGregorian (localDay $ zonedTimeToLocalTime now) in LocalTime (fromGregorian y 1 1) midnight
-  -- end at midnight this morning
-  end <- liftIO $ unzonedTimeToPOSIX (zonedTimeZone now) $
-    LocalTime (localDay $ zonedTimeToLocalTime now) midnight
+  -- default to midnight jan 1 this year until midnight this morning
+  start <- queryTime now "year" "start"
+  end <- queryTime now "day" "end"
   r <- liftIO $ withDBConn $ \db -> do
     reportUserTopUsage db UserCond
       { userAssocCond = Just $ AssocCond
@@ -56,15 +75,15 @@ slurmReport clusters = do
   let usage :: (Show a, Num a, Eq a) => BS.ByteString -> (TRESRec -> a) -> (b -> Labels) -> (b -> [TRESRec]) -> (ReportClusterRec -> [b]) -> Exporter
       usage tlab tmet alab arec aget = 
         counter ("usage_" <> tlab) Nothing
-          [ (cl : al ++ tl, m)
+          [ (tl, m)
           | c <- r
-          , let cl = clusterLabel c
+          , let cl = clusterLabels c
           , a <- aget c
-          , let al = alab a
+          , let al = alab a ++ cl
           , t <- arec a
-          , let tl = tresLabels t
           , let m = tmet t
           , 0 /= m
+          , let tl = tresLabels t ++ al
           ]
           (Just end)
       usages :: (b -> Labels) -> (b -> [TRESRec]) -> (ReportClusterRec -> [b]) -> Exporter

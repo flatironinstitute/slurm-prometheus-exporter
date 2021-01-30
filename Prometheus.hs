@@ -3,7 +3,9 @@
 {-# LANGUAGE TupleSections #-}
 
 module Prometheus
-  ( PrometheusT
+  ( Options(..)
+  , PromData(..)
+  , PrometheusT
   , Exporter
   , Label
   , Labels
@@ -14,23 +16,40 @@ module Prometheus
   , labeled
   , prefix
   , response
-  , Options(..)
+  , query
+  , query1
+  , queryBool
   ) where
 
+import           Control.Monad (join)
 import           Control.Monad.IO.Class (MonadIO)
+import           Control.Monad.Reader.Class (MonadReader, asks)
 import           Control.Monad.Trans.Class (MonadTrans(..))
 import           Control.Monad.Trans.Reader (ReaderT(..), withReaderT)
 import           Control.Monad.Trans.Writer (WriterT(..), tell, execWriterT)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Builder.Prim as BP
+import           Data.Maybe (listToMaybe)
 import           Data.Time.Clock.POSIX (POSIXTime)
 import           Network.HTTP.Types (hContentType, ok200)
 import qualified Network.Wai as Wai
 
+data Options = Options
+  { optPort :: Int
+  , optReason, optJobId :: Bool
+  , optReportClusters :: [BS.ByteString]
+  }
+
+data PromData = PromData
+  { promOpts :: Options
+  , promRequest :: Wai.Request
+  , promPrefix :: B.Builder
+  }
+
 newtype PrometheusT m a = PrometheusT{ runPrometheusT ::
-  ReaderT B.Builder (WriterT B.Builder m) a }
-  deriving (Monad, Applicative, Functor, MonadIO)
+  ReaderT PromData (WriterT B.Builder m) a }
+  deriving (Monad, Applicative, Functor, MonadIO, MonadReader PromData)
 
 type Exporter = PrometheusT IO ()
 
@@ -61,8 +80,8 @@ labels lab = bc '{' <>
     (BP.liftFixedToBounded BP.word8)
 
 metric :: (Monad m, Show val) => Str -> String -> Maybe Str -> [(Maybe Str, Labels, val)] -> Maybe POSIXTime -> PrometheusT m ()
-metric nam typ help samples tim = PrometheusT $ ReaderT $ \pre -> tell $
-  let namb = pre <> bs nam in
+metric nam typ help samples tim = PrometheusT $ ReaderT $ \dat -> tell $
+  let namb = promPrefix dat <> bs nam in
   B.string7 "# TYPE " <> namb <> sp <> B.string7 typ <> nl <>
   foldMap (\hel -> B.string7 "# HELP " <> namb <> sp <> bs hel <> nl) help <>
   foldMap (\(suf, lab, val) ->
@@ -86,15 +105,21 @@ labeled :: Str -> [(Str, v)] -> [(Labels, v)]
 labeled n s = [ ([(n,l)],v) | (l,v) <- s ]
 
 prefix :: Str -> PrometheusT m a -> PrometheusT m a
-prefix pre = PrometheusT . withReaderT (<> (bs pre <> bc '_')) . runPrometheusT
+prefix pre = PrometheusT . withReaderT (\dat -> dat{ promPrefix = promPrefix dat <> bs pre <> bc '_'}) . runPrometheusT
 
-response :: Monad m => PrometheusT m () -> m Wai.Response
-response p =
+response :: Monad m => Options -> Wai.Request -> PrometheusT m () -> m Wai.Response
+response opts req p =
   Wai.responseBuilder ok200 [(hContentType, "text/plain; version=0.0.4")]
-    <$> execWriterT (runReaderT (runPrometheusT p) mempty)
+    <$> execWriterT (runReaderT (runPrometheusT p) (PromData opts req mempty))
 
-data Options = Options
-  { optPort :: Int
-  , optReason, optJobId :: Bool
-  , optReportClusters :: [String]
-  }
+query :: Monad m => BS.ByteString -> PrometheusT m [Maybe BS.ByteString]
+query q = asks $ map snd . filter ((q ==) . fst) . Wai.queryString . promRequest
+
+query1 :: Monad m => BS.ByteString -> PrometheusT m (Maybe BS.ByteString)
+query1 q = join . listToMaybe <$> query q
+
+queryBool :: Monad m => BS.ByteString -> PrometheusT m (Maybe Bool)
+queryBool q = fmap (all b) . listToMaybe <$> query q where
+  b "" = False
+  b "0" = False
+  b _ = True

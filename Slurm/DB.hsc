@@ -13,7 +13,6 @@ module Slurm.DB
 import           Control.Exception (bracket)
 import qualified Data.ByteString as BS
 import           Data.Word (Word32, Word64)
-import           Foreign.C.String (withCString)
 import           Foreign.C.Types (CInt(..), CBool(..), CTime(..))
 import           Foreign.Marshal.Utils (with, maybeWith, withMany, fromBool)
 import           Foreign.Ptr (Ptr)
@@ -26,7 +25,7 @@ import Slurm.Internal
 data DBConn
 
 data AssocCond = AssocCond
-  { assocCondClusters :: Maybe [String]
+  { assocCondClusters :: Maybe [BS.ByteString]
   , assocCondUsageEnd, assocCondUsageStart :: !CTime
   }
 
@@ -80,7 +79,7 @@ instance Storable UserCond where
 
 withAssocCond :: AssocCond -> (Ptr AssocCond -> IO a) -> IO a
 withAssocCond AssocCond{..} f = calloca $ \ap ->
-  maybeWith (\cl -> withMany withCString cl . flip withList)
+  maybeWith (\cl -> withMany BS.useAsCString cl . flip withList)
     assocCondClusters $ \clp -> do
       (#poke slurmdb_assoc_cond_t, cluster_list) ap clp
       (#poke slurmdb_assoc_cond_t, usage_end) ap assocCondUsageEnd
