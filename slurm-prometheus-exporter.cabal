@@ -28,10 +28,12 @@ executable slurm-exporter
     Slurm.Stats,
     Slurm.Job,
     Slurm.Node,
+    Slurm.DB,
     TRES,
     Node,
     Job,
-    User
+    User,
+    Report
   default-language:    Haskell2010
   ghc-options:         -Wall
   build-depends:       base >= 4.7 && < 5,

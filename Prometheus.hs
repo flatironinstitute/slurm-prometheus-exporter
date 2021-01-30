@@ -4,6 +4,8 @@
 
 module Prometheus
   ( PrometheusT
+  , Exporter
+  , Label
   , Labels
   , Labeled(..)
   , counter
@@ -29,6 +31,8 @@ import qualified Network.Wai as Wai
 newtype PrometheusT m a = PrometheusT{ runPrometheusT ::
   ReaderT B.Builder (WriterT B.Builder m) a }
   deriving (Monad, Applicative, Functor, MonadIO)
+
+type Exporter = PrometheusT IO ()
 
 instance MonadTrans PrometheusT where
   lift = PrometheusT . lift . lift
@@ -92,4 +96,5 @@ response p =
 data Options = Options
   { optPort :: Int
   , optReason, optJobId :: Bool
+  , optReportClusters :: [String]
   }

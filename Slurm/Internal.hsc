@@ -1,20 +1,21 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
 module Slurm.Internal where
 
 import           Control.Concurrent.MVar (MVar, newMVar, withMVar, modifyMVar)
+import           Control.Exception (bracket)
 import           Control.Monad ((<=<), mfilter)
 import qualified Data.ByteString as BS
 import           Data.Foldable (fold)
 import           Data.Maybe (fromMaybe)
 import           Foreign.C.String (CString, peekCString, withCString)
 import           Foreign.C.Types (CInt(..), CTime(..))
-import           Foreign.ForeignPtr (ForeignPtr, newForeignPtr, withForeignPtr)
-import           Foreign.Marshal.Alloc (alloca)
-import           Foreign.Marshal.Utils (with, maybePeek)
-import           Foreign.Ptr (Ptr, FunPtr, nullPtr)
+import           Foreign.ForeignPtr (ForeignPtr, newForeignPtr, withForeignPtr, FinalizerPtr)
+import           Foreign.Marshal.Alloc (alloca, allocaBytes, allocaBytesAligned)
+import           Foreign.Marshal.Utils (with, maybePeek, fillBytes)
+import           Foreign.Ptr (Ptr, FunPtr, nullPtr, nullFunPtr)
 import           Foreign.Storable (Storable(..), peek)
-import           System.IO.Error (ioError, userError)
 import qualified System.IO.Unsafe as Unsafe
 
 #include <slurm/slurm.h>
@@ -53,6 +54,63 @@ throwError = ioError . userError <=< peekCString . slurm_strerror
 
 throwIfError :: IO CInt -> IO ()
 throwIfError = mapM_ throwError <=< checkError
+
+calloca :: forall a b . Storable a => (Ptr a -> IO b) -> IO b
+calloca f = alloca $ \p -> do
+  fillBytes p 0 $ sizeOf (undefined :: a)
+  f p
+
+callocaBytes :: Int -> (Ptr a -> IO b) -> IO b
+callocaBytes n f = allocaBytes n $ \p -> do
+  fillBytes p 0 n
+  f p
+
+callocaBytesAligned :: Int -> Int -> (Ptr a -> IO b) -> IO b
+callocaBytesAligned n a f = allocaBytesAligned n a $ \p -> do
+  fillBytes p 0 n
+  f p
+
+data XList a
+type List a = Ptr (XList a)
+data XListIterator a
+type ListIterator a = Ptr (XListIterator a)
+
+foreign import ccall unsafe slurm_list_create :: FunPtr (Ptr a -> IO ()) -> IO (List a)
+foreign import ccall unsafe slurm_list_append :: List a -> Ptr a -> IO (Ptr a)
+foreign import ccall   safe slurm_list_destroy :: List a -> IO ()
+foreign import ccall unsafe slurm_list_iterator_create :: List a -> IO (ListIterator a)
+foreign import ccall unsafe slurm_list_iterator_destroy :: ListIterator a -> IO ()
+foreign import ccall unsafe slurm_list_next :: ListIterator a -> IO (Ptr a)
+
+withListIterator :: List a -> (ListIterator a -> IO b) -> IO b
+withListIterator l = bracket
+  (slurm_list_iterator_create l)
+  slurm_list_iterator_destroy
+
+fromList :: List a -> IO [Ptr a]
+fromList l
+  | l == nullPtr = return []
+  | otherwise = withListIterator l iter where
+    iter i = do
+      p <- slurm_list_next i
+      if p == nullPtr
+        then return []
+        else (p :) <$> iter i
+
+peekList :: Storable a => List a -> IO [a]
+peekList l = mapM peek =<< fromList l
+
+-- |result must be freed with slurm_list_destroy
+createList :: FinalizerPtr a -> [Ptr a] -> IO (List a)
+createList f l = do
+  p <- slurm_list_create f
+  mapM_ (slurm_list_append p) l
+  return p
+
+withList :: [Ptr a] -> (List a -> IO b) -> IO b
+withList l = bracket
+  (createList nullFunPtr l)
+  slurm_list_destroy
 
 type NodeName = BS.ByteString
 

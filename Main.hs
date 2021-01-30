@@ -22,8 +22,7 @@ import Prometheus
 import TRES
 import Job
 import Node
-
-type Exporter = PrometheusT IO ()
+import Report
 
 stats :: Exporter
 stats = prefix "stats" $ do
@@ -83,7 +82,8 @@ nodes opts = prefix "node" $ do
   allocGauges ResAlloc False nt $ accountNodes opts nl
   return (nt, nl)
 
--- TODO: sreport?
+report :: [String] -> Exporter
+report cl = prefix "report" $ slurmReport cl
 
 exporters :: Options -> [(T.Text, Exporter)]
 exporters opts =
@@ -91,14 +91,16 @@ exporters opts =
   , ("stats", stats)
   , ("nodes", void $ nodes opts)
   , ("jobs", jobs opts (0, []))
-  , ("metrics", stats >> nodes opts >>= jobs opts)
-  ]
+  , ("report", report rl)
+  , ("metrics", stats >> nodes opts >>= jobs opts >> if null rl then return () else report rl)
+  ] where rl = optReportClusters opts
 
 defOptions :: Options
 defOptions = Options
   { optPort = 8090
   , optReason = False
   , optJobId = False
+  , optReportClusters = []
   }
 
 options :: [Opt.OptDescr (Options -> Options)]
@@ -112,6 +114,9 @@ options =
   , Opt.Option "j" ["jobids"]
       (Opt.NoArg (\o -> o{ optJobId = True }))
       ("include job ids (may increase prometheus database size)")
+  , Opt.Option "c" ["report"]
+      (Opt.ReqArg (\c o -> o{ optReportClusters = c : optReportClusters o }) "CLUSTER")
+      "include sreport data from CLUSTER (may be repeated)"
   ]
 
 main :: IO ()
