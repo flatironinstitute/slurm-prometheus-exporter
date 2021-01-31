@@ -8,10 +8,13 @@ module Slurm.DB
   , ReportUserRec(..)
   , ReportClusterRec(..)
   , reportUserTopUsage
+  , mergeLists
   ) where
 
 import           Control.Exception (bracket)
 import qualified Data.ByteString as BS
+import           Data.Function (on)
+import           Data.List (sort)
 import           Data.Word (Word32, Word64)
 import           Foreign.C.Types (CInt(..), CBool(..), CTime(..))
 import           Foreign.Marshal.Utils (with, maybeWith, withMany, fromBool)
@@ -35,8 +38,8 @@ data UserCond = UserCond
 
 data TRESRec = TRESRec
   { tresRecAllocSecs :: !Word64
-  , tresRecRecCount :: !Word32
-  , tresRecCount :: !Word32
+  --, tresRecRecCount :: !Word32
+  --, tresRecCount :: !Word32
   , tresRecId :: !Word32
   , tresRecName :: !BS.ByteString
   , tresRecType :: !BS.ByteString
@@ -97,8 +100,8 @@ instance Storable TRESRec where
   alignment _ = #alignment slurmdb_tres_rec_t
   peek p = TRESRec
     <$> ((#peek slurmdb_tres_rec_t, alloc_secs) p)
-    <*> ((#peek slurmdb_tres_rec_t, rec_count) p)
-    <*> ((#peek slurmdb_tres_rec_t, count) p)
+    -- <*> ((#peek slurmdb_tres_rec_t, rec_count) p)
+    -- <*> ((#peek slurmdb_tres_rec_t, count) p)
     <*> ((#peek slurmdb_tres_rec_t, id) p)
     <*> (packCString =<< (#peek slurmdb_tres_rec_t, name) p)
     <*> (packCString =<< (#peek slurmdb_tres_rec_t, type) p)
@@ -129,3 +132,40 @@ reportUserTopUsage db c g = withUserCond c $ \cp -> bracket
   slurm_list_destroy
   peekList
 
+-- merge lists, assiming both are sorted
+mergeSortedLists :: (Semigroup a, Ord a) => [a] -> [a] -> [a]
+mergeSortedLists = ml where
+  ml [] l = l
+  ml l [] = l
+  ml aal@(a:al) bbl@(b:bl) = case compare a b of
+    EQ -> a <> b : ml al bl
+    LT -> a : ml al bbl
+    GT -> b : ml aal bl
+
+-- merge lists, efficiently if both are sorted
+mergeLists :: (Semigroup a, Ord a) => [a] -> [a] -> [a]
+mergeLists a b = mergeSortedLists (sort a) (sort b)
+
+instance Eq TRESRec where
+  (==) = on (==) tresRecId
+instance Ord TRESRec where
+  compare = on compare tresRecId
+instance Semigroup TRESRec where
+  a <> b = a{ tresRecAllocSecs = tresRecAllocSecs a + tresRecAllocSecs b }
+
+instance Eq ReportUserRec where
+  (==) = on (==) reportUserRecName
+instance Ord ReportUserRec where
+  compare = on compare reportUserRecName
+instance Semigroup ReportUserRec where
+  a <> b = a{ reportUserTRES = on mergeLists reportUserTRES a b }
+
+instance Eq ReportClusterRec where
+  (==) = on (==) reportClusterRecName
+instance Ord ReportClusterRec where
+  compare = on compare reportClusterRecName
+instance Semigroup ReportClusterRec where
+  a <> b = a
+    { reportClusterTRES = on mergeLists reportClusterTRES a b
+    , reportClusterUsers = on mergeSortedLists reportClusterUsers a b
+    }
