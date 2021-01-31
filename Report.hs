@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Report
   ( slurmReport
@@ -6,7 +7,7 @@ module Report
 
 import           Control.Applicative ((<|>))
 import           Control.Concurrent.MVar (MVar, newMVar, readMVar, swapMVar)
-import           Control.Monad (void, unless)
+import           Control.Monad (void)
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
@@ -15,7 +16,7 @@ import           Data.Maybe (fromMaybe, fromJust)
 import           Data.Time.Calendar (Day, toGregorian, fromGregorian)
 import           Data.Time.Clock.POSIX (POSIXTime, utcTimeToPOSIXSeconds)
 import           Data.Time.Format (parseTimeM, defaultTimeLocale)
-import           Data.Time.LocalTime (LocalTime(..), getTimeZone, TimeZone, localTimeToUTC, ZonedTime(..), getZonedTime, midnight, TimeOfDay)
+import           Data.Time.LocalTime (LocalTime(..), getTimeZone, TimeZone, localTimeToUTC, ZonedTime(..), getZonedTime, midnight, TimeOfDay(..))
 import           Foreign.C.Types (CTime(..))
 import qualified System.IO.Unsafe as Unsafe
 
@@ -24,17 +25,21 @@ import Prometheus
 
 unzonedTimeToPOSIX :: TimeZone -> LocalTime -> IO POSIXTime
 unzonedTimeToPOSIX z0 l = do
-  z <- getTimeZone (localTimeToUTC z0 l)
-  -- just hope doesn't cross boundary...
-  return $ utcTimeToPOSIXSeconds $ localTimeToUTC z l
+  let t0 = localTimeToUTC z0 l
+  z1 <- getTimeZone t0
+  let t1 = localTimeToUTC z1 l
+  utcTimeToPOSIXSeconds <$> if t0 == t1 then return t1 else do
+    z <- getTimeZone t1
+    return $ localTimeToUTC z l
 
 parseTime :: LocalTime -> BS.ByteString -> LocalTime
 parseTime now "now" = now
-parseTime now "today" = LocalTime (localDay now) midnight
-parseTime now "day" = LocalTime (localDay now) midnight
+parseTime now "hour" = now{ localTimeOfDay = (localTimeOfDay now){ todMin = 0, todSec = 0} }
+parseTime now "today" = now{ localTimeOfDay = midnight }
+parseTime now "day" = now{ localTimeOfDay = midnight }
 parseTime now "month" = let (y,m,_) = toGregorian (localDay now) in LocalTime (fromGregorian y m 1) midnight
 parseTime now "year" = let (y,_,_) = toGregorian (localDay now) in LocalTime (fromGregorian y 1 1) midnight
-parseTime _ s = fromJust $
+parseTime now s = min now $ fromJust $
   try df <|> try dt <|> try (dt <> ":%S")
   where
   try f = parseTimeM True defaultTimeLocale f s'
@@ -61,13 +66,65 @@ userLabels u = ("user", reportUserRecName u) :
 clusterLabels :: ReportClusterRec -> Labels
 clusterLabels c = [("cluster", reportClusterRecName c)]
 
+queryRange :: IO DBConn -> ZonedTime -> [BS.ByteString] -> (LocalTime, LocalTime) -> IO [ReportClusterRec]
+queryRange dbc now cl (s, e) = do
+  db <- dbc
+  sp <- unzonedTimeToPOSIX (zonedTimeZone now) s
+  ep <- unzonedTimeToPOSIX (zonedTimeZone now) e
+  reportUserTopUsage db UserCond
+    { userAssocCond = Just $ AssocCond
+      { assocCondClusters = Just cl
+      , assocCondUsageStart = CTime $ round sp
+      , assocCondUsageEnd = CTime $ round ep
+      }
+    } False
+
+data Cache a = Cache
+  { cacheKey :: a
+  , cacheClusters :: [BS.ByteString]
+  , cacheReport :: [ReportClusterRec]
+  }
+
+newCache :: a -> Cache a
+newCache a = Cache a [] []
+
+cachedQueryRange :: Eq a => IO DBConn -> ZonedTime -> [BS.ByteString] -> MVar (Cache a) -> a -> (LocalTime, LocalTime) -> IO [ReportClusterRec]
+cachedQueryRange db now clusters cachev key rng@(s,e)
+  | s >= e = return []
+  | otherwise = do
+    Cache{..} <- readMVar cachev
+    if key == cacheKey then
+      if clusters == cacheClusters then 
+        return cacheReport
+      else if null clusters then
+        set clusters =<< qr clusters
+      else
+        (filter (\c -> reportClusterRecName c `elem` clusters) cacheReport ++) <$>
+          case clusters \\ cacheClusters of
+            [] -> return []
+            dl -> do
+              r <- qr dl
+              void $ set (cacheClusters ++ dl) (cacheReport ++ r)
+              return r
+    else
+      set clusters =<< qr clusters
+  where
+  qr cl = queryRange db now cl rng
+  set cl v = do
+    void $ swapMVar cachev $ Cache key cl v
+    return v
+
 -- slurmdb is much faster to query (full days) + (today) separately than the full range, so cache the day portion
 {-# NOINLINE dayCache #-}
-dayCache :: MVar (Day, Day, [ReportClusterRec])
-dayCache = Unsafe.unsafePerformIO $ newMVar (toEnum 0,toEnum 0,[])
+dayCache :: MVar (Cache (Day, Day))
+dayCache = Unsafe.unsafePerformIO $ newMVar $ newCache (toEnum 0,toEnum 0)
 
-splitDays :: LocalTime -> LocalTime -> Maybe (Day, Day, TimeOfDay)
-splitDays (LocalTime d1 t1) (LocalTime d2 t2)
+{-# NOINLINE timeCache #-}
+timeCache :: MVar (Cache (Day, TimeOfDay))
+timeCache = Unsafe.unsafePerformIO $ newMVar $ newCache (toEnum 0,midnight)
+
+splitDays :: (LocalTime, LocalTime) -> Maybe (Day, Day, TimeOfDay)
+splitDays (LocalTime d1 t1, LocalTime d2 t2)
   | t1 == midnight = Just (d1, d2, t2)
   | otherwise = Nothing
 
@@ -75,35 +132,17 @@ slurmReport :: [BS.ByteString] -> Exporter
 slurmReport clusters = do
   now <- liftIO getZonedTime
   start <- queryTime now "year" "start"
-  end <- queryTime now "now" "end"
+  end <- queryTime now "hour" "end"
   endp <- liftIO $ unzonedTimeToPOSIX (zonedTimeZone now) end
-  r <- if start >= end then return [] else liftIO $ withDBConn $ \db -> do
-    let queryRange cl s e = do
-          sp <- unzonedTimeToPOSIX (zonedTimeZone now) s
-          ep <- unzonedTimeToPOSIX (zonedTimeZone now) e
-          reportUserTopUsage db UserCond
-            { userAssocCond = Just $ AssocCond
-              { assocCondClusters = Just cl
-              , assocCondUsageStart = CTime $ round sp
-              , assocCondUsageEnd = CTime $ round ep
-              }
-            } False
+  r <- if start >= end then return [] else liftIO $ withLazyDBConn $ \db -> do
+    let rng = (start, end)
     maybe
-      (queryRange clusters start end)
+      (queryRange db now clusters rng)
       (\(startd, endd, endt) -> do
-        dr <- if startd >= endd then return [] else do
-          (startdc, enddc, cr) <- readMVar dayCache
-          let crd | startdc == startd && enddc == endd = cr
-                  | otherwise = []
-          dr <- (crd ++) <$> case clusters \\ map reportClusterRecName crd of
-            [] | not (null clusters && null crd) -> return [] -- not exactly right
-            diffc -> queryRange diffc (LocalTime startd midnight) (LocalTime endd midnight)
-          unless (endd < enddc) $ void $ swapMVar dayCache (startd, endd, dr)
-          return $ if null clusters then dr else filter (\c -> reportClusterRecName c `elem` clusters) dr
-        tr <- if endt <= midnight then return [] else
-          queryRange clusters (LocalTime endd midnight) (LocalTime endd endt)
+        dr <- cachedQueryRange db now clusters dayCache  (startd, endd) (LocalTime startd midnight, LocalTime endd midnight)
+        tr <- cachedQueryRange db now clusters timeCache (endd,   endt) (LocalTime endd   midnight, LocalTime endd endt)
         return $ mergeLists dr tr)
-      $ splitDays start end
+      $ splitDays rng
   let usage :: (Show a, Num a, Eq a) => BS.ByteString -> (TRESRec -> a) -> (b -> Labels) -> (b -> [TRESRec]) -> (ReportClusterRec -> [b]) -> Exporter
       usage tlab tmet alab arec aget = 
         counter ("usage_" <> tlab) Nothing

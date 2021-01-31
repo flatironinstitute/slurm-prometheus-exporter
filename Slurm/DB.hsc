@@ -1,7 +1,9 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Slurm.DB
-  ( withDBConn
+  ( DBConn
+  , withDBConn
+  , withLazyDBConn
   , AssocCond(..)
   , UserCond(..)
   , TRESRec(..)
@@ -11,7 +13,10 @@ module Slurm.DB
   , mergeLists
   ) where
 
+import           Control.Arrow ((&&&))
+import           Control.Concurrent.MVar (newMVar, takeMVar, modifyMVar)
 import           Control.Exception (bracket)
+import           Control.Monad ((<=<))
 import qualified Data.ByteString as BS
 import           Data.Function (on)
 import           Data.List (sort)
@@ -25,7 +30,8 @@ import Slurm.Internal
 
 #include <slurm/slurmdb.h>
 
-data DBConn
+data DBConnVal
+type DBConn = Ptr DBConnVal
 
 data AssocCond = AssocCond
   { assocCondClusters :: Maybe [BS.ByteString]
@@ -58,12 +64,23 @@ data ReportClusterRec = ReportClusterRec
   , reportClusterUsers :: [ReportUserRec]
   } deriving (Show)
 
-foreign import ccall unsafe slurmdb_connection_get :: IO (Ptr DBConn)
-foreign import ccall unsafe slurmdb_connection_close :: Ptr (Ptr DBConn) -> IO CInt
-foreign import ccall unsafe slurmdb_report_user_top_usage :: Ptr DBConn -> Ptr UserCond -> CBool -> IO (List ReportClusterRec)
+foreign import ccall unsafe slurmdb_connection_get :: IO DBConn
+foreign import ccall unsafe slurmdb_connection_close :: Ptr DBConn -> IO CInt
+foreign import ccall unsafe slurmdb_report_user_top_usage :: DBConn -> Ptr UserCond -> CBool -> IO (List ReportClusterRec)
 
-withDBConn :: (Ptr DBConn -> IO a) -> IO a
+withDBConn :: (DBConn -> IO a) -> IO a
 withDBConn = bracket
+  slurmdb_connection_get
+  (\p -> throwIfError $ with p slurmdb_connection_close)
+
+bracketLazy :: IO a -> (a -> IO ()) -> (IO a -> IO b) -> IO b
+bracketLazy get put run = bracket
+  (newMVar Nothing)
+  (mapM_ put <=< takeMVar)
+  (\r -> run $ modifyMVar r (fmap (Just &&& id) . maybe get return))
+
+withLazyDBConn :: (IO DBConn -> IO a) -> IO a
+withLazyDBConn = bracketLazy
   slurmdb_connection_get
   (\p -> throwIfError $ with p slurmdb_connection_close)
 
@@ -126,7 +143,7 @@ instance Storable ReportClusterRec where
     <*> (peekList =<< (#peek slurmdb_report_cluster_rec_t, user_list) p)
   poke = error "poke ReportClusterRec not implemented"
 
-reportUserTopUsage :: Ptr DBConn -> UserCond -> Bool -> IO [ReportClusterRec]
+reportUserTopUsage :: DBConn -> UserCond -> Bool -> IO [ReportClusterRec]
 reportUserTopUsage db c g = withUserCond c $ \cp -> bracket
   (slurmdb_report_user_top_usage db cp (fromBool g))
   slurm_list_destroy

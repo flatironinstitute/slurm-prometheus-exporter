@@ -83,11 +83,12 @@ Optional query parameters:
 
 - `cluster` (`report` with /metrics): name of cluster to limit report to, may be repeated, defaults to all clusters
 - `start`: start time for query range, defaults to `year` (metrics are returned as counters, so you should keep this value relatively fixed)
-- `end`: end time for query range, defaults to `now` (queries are split into whole days + partial day as slurmdbd/mysql is much faster at these)
+- `end`: end time for query range, defaults to `hour` (queries are split into whole days + partial day as slurmdbd/mysql is much faster at these)
 
 Timestamps may be specified as:
 
 - `now`
+- `hour`: top of the current hour
 - `day`: midnight this morning
 - `month`: first of this month
 - `year`: Jan 1 this year
