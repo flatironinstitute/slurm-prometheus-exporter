@@ -22,8 +22,8 @@ COPY --chown=run stack.yaml *.cabal Setup.hs ./
 RUN stack build --dependencies-only
 COPY --chown=run *.hs README.md docker-run ./
 COPY --chown=run Slurm ./Slurm
-RUN stack install --flag=slurm-prometheus-exporter:-pkgconfig
+RUN stack install --flag=slurm-prometheus-exporter:-pkgconfig --extra-lib-dirs=/usr/lib/slurm
 
 EXPOSE 8090
-ENV SLURM_CONF=/etc/slurm/slurm.conf
+ENV SLURM_CONF=/etc/slurm/slurm.conf LD_LIBRARY_PATH=/usr/lib/slurm
 ENTRYPOINT ["/home/run/docker-run"]
