@@ -43,24 +43,31 @@ data UserCond = UserCond
   }
 
 data TRESRec = TRESRec
-  { tresRecAllocSecs :: !Word64
+  { tresRecId :: !Word32
+  , tresRecAllocSecs :: !Word64
   --, tresRecRecCount :: !Word32
   --, tresRecCount :: !Word32
-  , tresRecId :: !Word32
   , tresRecName :: !BS.ByteString
   , tresRecType :: !BS.ByteString
   } deriving (Show)
 
+data ReportAssocRec = ReportAssocRec
+  { reportAssocRecAcct :: !BS.ByteString
+  , reportAssocRecUser :: !BS.ByteString
+  , reportAssocTRES :: [TRESRec]
+  } deriving (Show)
+
 data ReportUserRec = ReportUserRec
-  { reportUserRecAcct :: !BS.ByteString
+  { reportUserRecName :: !BS.ByteString
+  , reportUserRecAcct :: !BS.ByteString
   , reportUserRecAccts :: [BS.ByteString]
-  , reportUserRecName :: !BS.ByteString
   , reportUserTRES :: [TRESRec]
   } deriving (Show)
 
 data ReportClusterRec = ReportClusterRec
   { reportClusterRecName :: !BS.ByteString
   , reportClusterTRES :: [TRESRec]
+  --, reportClusterAssocs :: [ReportAssocRec]
   , reportClusterUsers :: [ReportUserRec]
   } deriving (Show)
 
@@ -116,21 +123,30 @@ instance Storable TRESRec where
   sizeOf _    = #size slurmdb_tres_rec_t
   alignment _ = #alignment slurmdb_tres_rec_t
   peek p = TRESRec
-    <$> ((#peek slurmdb_tres_rec_t, alloc_secs) p)
+    <$> ((#peek slurmdb_tres_rec_t, id) p)
+    <*> ((#peek slurmdb_tres_rec_t, alloc_secs) p)
     -- <*> ((#peek slurmdb_tres_rec_t, rec_count) p)
     -- <*> ((#peek slurmdb_tres_rec_t, count) p)
-    <*> ((#peek slurmdb_tres_rec_t, id) p)
     <*> (packCString =<< (#peek slurmdb_tres_rec_t, name) p)
     <*> (packCString =<< (#peek slurmdb_tres_rec_t, type) p)
-  poke = error "poke ReportUserRec not implemented"
+  poke = error "poke TRESRec not implemented"
+
+instance Storable ReportAssocRec where
+  sizeOf _    = #size slurmdb_report_assoc_rec_t
+  alignment _ = #alignment slurmdb_report_assoc_rec_t
+  peek p = ReportAssocRec
+    <$> (packCString =<< (#peek slurmdb_report_assoc_rec_t, acct) p)
+    <*> (packCString =<< (#peek slurmdb_report_assoc_rec_t, user) p)
+    <*> (peekList =<< (#peek slurmdb_report_assoc_rec_t, tres_list) p)
+  poke = error "poke ReportAssocRec not implemented"
 
 instance Storable ReportUserRec where
   sizeOf _    = #size slurmdb_report_user_rec_t
   alignment _ = #alignment slurmdb_report_user_rec_t
   peek p = ReportUserRec
-    <$> (packCString =<< (#peek slurmdb_report_user_rec_t, acct) p)
+    <$> (packCString =<< (#peek slurmdb_report_user_rec_t, name) p)
+    <*> (packCString =<< (#peek slurmdb_report_user_rec_t, acct) p)
     <*> (mapM packCString =<< fromList =<< (#peek slurmdb_report_user_rec_t, acct_list) p)
-    <*> (packCString =<< (#peek slurmdb_report_user_rec_t, name) p)
     <*> (peekList =<< (#peek slurmdb_report_user_rec_t, tres_list) p)
   poke = error "poke ReportUserRec not implemented"
 
@@ -140,6 +156,7 @@ instance Storable ReportClusterRec where
   peek p = ReportClusterRec
     <$> (packCString =<< (#peek slurmdb_report_cluster_rec_t, name) p)
     <*> (peekList =<< (#peek slurmdb_report_cluster_rec_t, tres_list) p)
+    -- <*> (peekList =<< (#peek slurmdb_report_cluster_rec_t, assoc_list) p)
     <*> (peekList =<< (#peek slurmdb_report_cluster_rec_t, user_list) p)
   poke = error "poke ReportClusterRec not implemented"
 
