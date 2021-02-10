@@ -1,6 +1,10 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Prometheus
   ( Options(..)
@@ -22,9 +26,11 @@ module Prometheus
   ) where
 
 import           Control.Monad (join)
+import           Control.Monad.Base (MonadBase(..), liftBaseDefault)
 import           Control.Monad.IO.Class (MonadIO)
 import           Control.Monad.Reader.Class (MonadReader, asks)
 import           Control.Monad.Trans.Class (MonadTrans(..))
+import           Control.Monad.Trans.Control (MonadTransControl(..), MonadBaseControl(..), ComposeSt, defaultLiftWith2, defaultRestoreT2, defaultLiftBaseWith, defaultRestoreM)
 import           Control.Monad.Trans.Reader (ReaderT(..), withReaderT)
 import           Control.Monad.Trans.Writer (WriterT(..), tell, execWriterT)
 import qualified Data.ByteString as BS
@@ -52,12 +58,25 @@ data PromData = PromData
 
 newtype PrometheusT m a = PrometheusT{ runPrometheusT ::
   ReaderT PromData (WriterT B.Builder m) a }
-  deriving (Monad, Applicative, Functor, MonadIO, MonadReader PromData)
+  deriving (Monad, Applicative, Functor, MonadIO, MonadReader PromData, MonadFail)
 
 type Exporter = PrometheusT IO ()
 
 instance MonadTrans PrometheusT where
   lift = PrometheusT . lift . lift
+
+instance MonadTransControl PrometheusT where
+  type StT PrometheusT a = StT (WriterT B.Builder) (StT (ReaderT B.Builder) a)
+  liftWith = defaultLiftWith2 PrometheusT runPrometheusT
+  restoreT = defaultRestoreT2 PrometheusT
+
+instance MonadBase b m => MonadBase b (PrometheusT m) where
+  liftBase = liftBaseDefault
+
+instance MonadBaseControl b m => MonadBaseControl b (PrometheusT m) where
+  type StM (PrometheusT m) a = ComposeSt PrometheusT m a
+  liftBaseWith = defaultLiftBaseWith
+  restoreM = defaultRestoreM
 
 type Str = BS.ByteString
 type Label = (Str, Str)

@@ -91,8 +91,9 @@ nodes = prefix "node" $ do
 report :: Bool -> Exporter
 report al = do
   rl <- query (if al then "cluster" else "report")
+  hist <- or <$> queryBool "historical"
   cl <- if null rl then asks (optReportClusters . promOpts) else return (mapMaybe (mfilter (not . BS.null)) rl)
-  when (al || not (null cl)) $ prefix "report" $ slurmReport cl
+  when (al || not (null cl)) $ prefix "report" $ (if hist then historicalSlurmReports else slurmReport) cl
 
 exporters :: [(T.Text, Exporter)]
 exporters =
