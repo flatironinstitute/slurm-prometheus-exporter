@@ -18,19 +18,23 @@ import           Data.Time.Clock.POSIX (POSIXTime, utcTimeToPOSIXSeconds)
 import           Data.Time.Format (parseTimeM, defaultTimeLocale)
 import           Data.Time.LocalTime (LocalTime(..), getTimeZone, TimeZone, localTimeToUTC, ZonedTime(..), getZonedTime, midnight, TimeOfDay(..))
 import           Foreign.C.Types (CTime(..))
+import           System.IO (hPutStrLn, stderr)
 import qualified System.IO.Unsafe as Unsafe
 
 import Slurm
 import Prometheus
 
+-- |Convert a LocalTime without a timezone to UTC, attempting to determine the local time zone at that time (if possible).
 unzonedTimeToPOSIX :: TimeZone -> LocalTime -> IO POSIXTime
-unzonedTimeToPOSIX z0 l = do
-  let t0 = localTimeToUTC z0 l
-  z1 <- getTimeZone t0
-  let t1 = localTimeToUTC z1 l
-  utcTimeToPOSIXSeconds <$> if t0 == t1 then return t1 else do
-    z <- getTimeZone t1
-    return $ localTimeToUTC z l
+unzonedTimeToPOSIX z0 l = utcTimeToPOSIXSeconds <$> fixZone (0 :: Int) z0 where
+  -- some sort of crazy fixed point? of course may not converge for boundaries
+  fixZone i z = do
+    z' <- getTimeZone t
+    if z == z' then return t else if i >= 2 then do
+      hPutStrLn stderr $ "unzonedTimeToPosix did not converge: " ++ show l
+      return t
+    else fixZone (succ i) z'
+    where t = localTimeToUTC z l
 
 parseTime :: LocalTime -> BS.ByteString -> LocalTime
 parseTime now "now" = now
