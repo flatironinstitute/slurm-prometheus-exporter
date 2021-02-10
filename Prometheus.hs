@@ -30,13 +30,16 @@ import           Control.Monad.Trans.Writer (WriterT(..), tell, execWriterT)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Builder.Prim as BP
+import           Data.Fixed (showFixed)
 import           Data.Maybe (listToMaybe)
+import           Data.Time.Clock (nominalDiffTimeToSeconds)
 import           Data.Time.Clock.POSIX (POSIXTime)
 import           Network.HTTP.Types (hContentType, ok200)
 import qualified Network.Wai as Wai
 
 data Options = Options
   { optPort :: Int
+  , optOpenMetrics :: Bool
   , optReason, optJobId :: Bool
   , optReportClusters :: [BS.ByteString]
   }
@@ -70,11 +73,10 @@ bs :: Str -> B.Builder
 bs = B.byteString
 
 labels :: Labels -> B.Builder
-labels [] = mempty
-labels lab = bc '{' <>
-  foldMap (\(n,v) -> bs n <> bc '=' <> bc '"' <> BP.primMapByteStringBounded esc v <> bc '"' <> bc ',') lab
-  <> bc '}'
-  where
+labels = blabs where
+  blabs [] = mempty
+  blabs (a:l) = bc '{' <> blab a <> foldMap ((bc ',' <>) . blab) l <> bc '}'
+  blab (n,v) = bs n <> bc '=' <> bc '"' <> BP.primMapByteStringBounded esc v <> bc '"'
   esc = BP.condB (`BS.elem` "\"\n\\")
     (BP.liftFixedToBounded $ ('\\', ) BP.>$< BP.char7 BP.>*< BP.word8)
     (BP.liftFixedToBounded BP.word8)
@@ -85,12 +87,15 @@ metric nam typ help samples tim = PrometheusT $ ReaderT $ \dat -> tell $
   B.string7 "# TYPE " <> namb <> sp <> B.string7 typ <> nl <>
   foldMap (\hel -> B.string7 "# HELP " <> namb <> sp <> bs hel <> nl) help <>
   foldMap (\(suf, lab, val) ->
-    namb <> foldMap ((bc '_' <>) . bs) suf <> labels lab <> sp <> B.string7 (show val) <> ts <> nl)
+    namb <> foldMap ((bc '_' <>) . bs) suf <> labels lab <> sp <> B.string7 (show val) <> ts (promOpts dat) <> nl)
     samples
   where
   sp = bc ' '
   nl = bc '\n'
-  ts = foldMap ((sp <>) . B.int64Dec . round . (1000 *)) tim
+  ts opts = foldMap ((sp <>) . if optOpenMetrics opts
+    then (B.string7 . showFixed True . nominalDiffTimeToSeconds)
+    else (B.integerDec . round . (1000 *)))
+    tim
 
 counter :: (Monad m, Show val) => Str -> Maybe Str -> [(Labels, val)] -> Maybe POSIXTime -> PrometheusT m ()
 counter nam hel samp = metric nam "counter" hel [(Nothing, lab, val) | (lab, val) <- samp]
@@ -109,7 +114,12 @@ prefix pre = PrometheusT . withReaderT (\dat -> dat{ promPrefix = promPrefix dat
 
 response :: Monad m => Options -> Wai.Request -> PrometheusT m () -> m Wai.Response
 response opts req p =
-  Wai.responseBuilder ok200 [(hContentType, "text/plain; version=0.0.4")]
+  Wai.responseBuilder ok200
+    [(hContentType, if optOpenMetrics opts
+      then "application/openmetrics-text; version=1.0.0; charset=utf-8"
+      else "text/plain; version=0.0.4")
+    ]
+    . (if optOpenMetrics opts then (<> B.string7 "# EOF\n") else id)
     <$> execWriterT (runReaderT (runPrometheusT p) (PromData opts req mempty))
 
 query :: Monad m => BS.ByteString -> PrometheusT m [Maybe BS.ByteString]

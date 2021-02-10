@@ -107,6 +107,7 @@ exporters =
 defOptions :: Options
 defOptions = Options
   { optPort = 8090
+  , optOpenMetrics = False
   , optReason = False
   , optJobId = False
   , optReportClusters = []
@@ -126,6 +127,9 @@ options =
   , Opt.Option "c" ["report"]
       (Opt.ReqArg (\c o -> o{ optReportClusters = BSC.pack c : optReportClusters o }) "CLUSTER")
       "include sreport data from CLUSTER by default (may be repeated)"
+  , Opt.Option "o" ["open-metrics"]
+      (Opt.NoArg (\o -> o{ optOpenMetrics = True }))
+      ("export in OpenMetrics format (rather than prometheus text)")
   ]
 
 main :: IO ()
