@@ -1,6 +1,10 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Prometheus
   ( Options(..)
@@ -21,12 +25,13 @@ module Prometheus
   , queryBool
   ) where
 
-import           Control.Monad (join)
+import           Control.Monad (join, when)
+import           Control.Monad.Base (MonadBase(..), liftBaseDefault)
 import           Control.Monad.IO.Class (MonadIO)
 import           Control.Monad.Reader.Class (MonadReader, asks)
 import           Control.Monad.Trans.Class (MonadTrans(..))
+import           Control.Monad.Trans.Control (MonadTransControl(..), MonadBaseControl(..), ComposeSt, defaultLiftBaseWith, defaultRestoreM)
 import           Control.Monad.Trans.Reader (ReaderT(..), withReaderT)
-import           Control.Monad.Trans.Writer (WriterT(..), tell, execWriterT)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Builder.Prim as BP
@@ -47,17 +52,22 @@ data Options = Options
 data PromData = PromData
   { promOpts :: Options
   , promRequest :: Wai.Request
+  , promSend :: B.Builder -> IO ()
   , promPrefix :: B.Builder
   }
 
-newtype PrometheusT m a = PrometheusT{ runPrometheusT ::
-  ReaderT PromData (WriterT B.Builder m) a }
-  deriving (Monad, Applicative, Functor, MonadIO, MonadReader PromData)
+newtype PrometheusT m a = PrometheusT{ runPrometheusT :: ReaderT PromData m a }
+  deriving (Monad, Applicative, Functor, MonadIO, MonadReader PromData, MonadFail, MonadTrans, MonadTransControl)
 
 type Exporter = PrometheusT IO ()
 
-instance MonadTrans PrometheusT where
-  lift = PrometheusT . lift . lift
+instance MonadBase b m => MonadBase b (PrometheusT m) where
+  liftBase = liftBaseDefault
+
+instance MonadBaseControl b m => MonadBaseControl b (PrometheusT m) where
+  type StM (PrometheusT m) a = ComposeSt PrometheusT m a
+  liftBaseWith = defaultLiftBaseWith
+  restoreM = defaultRestoreM
 
 type Str = BS.ByteString
 type Label = (Str, Str)
@@ -81,8 +91,8 @@ labels = blabs where
     (BP.liftFixedToBounded $ ('\\', ) BP.>$< BP.char7 BP.>*< BP.word8)
     (BP.liftFixedToBounded BP.word8)
 
-metric :: (Monad m, Show val) => Str -> String -> Maybe Str -> [(Maybe Str, Labels, val)] -> Maybe POSIXTime -> PrometheusT m ()
-metric nam typ help samples tim = PrometheusT $ ReaderT $ \dat -> tell $
+metric :: Show val => Str -> String -> Maybe Str -> [(Maybe Str, Labels, val)] -> Maybe POSIXTime -> Exporter
+metric nam typ help samples tim = PrometheusT $ ReaderT $ \dat -> promSend dat $
   let namb = promPrefix dat <> bs nam in
   B.string7 "# TYPE " <> namb <> sp <> B.string7 typ <> nl <>
   foldMap (\hel -> B.string7 "# HELP " <> namb <> sp <> bs hel <> nl) help <>
@@ -97,13 +107,13 @@ metric nam typ help samples tim = PrometheusT $ ReaderT $ \dat -> tell $
     else (B.integerDec . round . (1000 *)))
     tim
 
-counter :: (Monad m, Show val) => Str -> Maybe Str -> [(Labels, val)] -> Maybe POSIXTime -> PrometheusT m ()
+counter :: Show val => Str -> Maybe Str -> [(Labels, val)] -> Maybe POSIXTime -> Exporter
 counter nam hel samp = metric nam "counter" hel [(Nothing, lab, val) | (lab, val) <- samp]
 
-gauge :: (Monad m, Show val) => Str -> Maybe Str -> [(Labels, val)] -> Maybe POSIXTime -> PrometheusT m ()
+gauge :: Show val => Str -> Maybe Str -> [(Labels, val)] -> Maybe POSIXTime -> Exporter
 gauge nam hel samp = metric nam "gauge" hel [(Nothing, lab, val) | (lab, val) <- samp]
 
-one :: (Str -> Maybe Str -> [(Labels, val)] -> Maybe POSIXTime -> PrometheusT m ()) -> Str -> Maybe Str -> Labels -> val -> Maybe POSIXTime -> PrometheusT m ()
+one :: (Str -> Maybe Str -> [(Labels, val)] -> a) -> Str -> Maybe Str -> Labels -> val -> a
 one f nam hel lab val = f nam hel [(lab, val)]
 
 labeled :: Str -> [(Str, v)] -> [(Labels, v)]
@@ -112,15 +122,16 @@ labeled n s = [ ([(n,l)],v) | (l,v) <- s ]
 prefix :: Str -> PrometheusT m a -> PrometheusT m a
 prefix pre = PrometheusT . withReaderT (\dat -> dat{ promPrefix = promPrefix dat <> bs pre <> bc '_'}) . runPrometheusT
 
-response :: Monad m => Options -> Wai.Request -> PrometheusT m () -> m Wai.Response
+response :: Options -> Wai.Request -> Exporter -> Wai.Response
 response opts req p =
-  Wai.responseBuilder ok200
+  Wai.responseStream ok200
     [(hContentType, if optOpenMetrics opts
       then "application/openmetrics-text; version=1.0.0; charset=utf-8"
       else "text/plain; version=0.0.4")
     ]
-    . (if optOpenMetrics opts then (<> B.string7 "# EOF\n") else id)
-    <$> execWriterT (runReaderT (runPrometheusT p) (PromData opts req mempty))
+    $ \send _ -> do
+      runReaderT (runPrometheusT p) (PromData opts req send mempty)
+      when (optOpenMetrics opts) $ send $ B.string7 "# EOF\n"
 
 query :: Monad m => BS.ByteString -> PrometheusT m [Maybe BS.ByteString]
 query q = asks $ map snd . filter ((q ==) . fst) . Wai.queryString . promRequest

@@ -41,6 +41,8 @@ executable slurm-exporter
     containers,
     transformers,
     mtl,
+    transformers-base,
+    monad-control,
     unix,
     time,
     text,
