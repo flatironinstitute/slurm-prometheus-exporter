@@ -147,6 +147,6 @@ main = do
     case Wai.pathInfo req of
       [flip lookup exporters -> Just e]
         | Wai.requestMethod req == methodGet ->
-          resp =<< response opts req (prefix "slurm" e)
+          resp $ response opts req (prefix "slurm" e)
         | otherwise -> resp $ Wai.responseLBS methodNotAllowed405 [] mempty
       _ -> resp $ Wai.responseLBS notFound404 [] mempty

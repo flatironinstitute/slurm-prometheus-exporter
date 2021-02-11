@@ -140,7 +140,7 @@ splitDays (LocalTime d1 t1, LocalTime d2 t2)
   | t1 == midnight && d1 <= d2 = Just (d1, d2, t2)
   | otherwise = Nothing
 
-reportUsage :: Monad m => POSIXTime -> [ReportClusterRec] -> PrometheusT m ()
+reportUsage :: POSIXTime -> [ReportClusterRec] -> Exporter
 reportUsage endp r = do
   prefix "cluster" $ usages (const []) reportClusterTRES return
   prefix "user"    $ usages userLabels reportUserTRES reportClusterUsers
