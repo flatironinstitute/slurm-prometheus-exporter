@@ -89,7 +89,7 @@ queryRange dbc now cl (s, e) | s >= e = do
       , assocCondUsageStart = CTime $ round sp
       , assocCondUsageEnd = CTime $ round ep
       }
-    } False
+    } True
 
 data Cache a = Cache
   { cacheKey :: a
