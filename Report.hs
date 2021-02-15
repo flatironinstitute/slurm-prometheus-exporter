@@ -17,9 +17,10 @@ import qualified Data.ByteString.Char8 as BSC
 import           Data.List ((\\))
 import           Data.Maybe (fromMaybe, fromJust)
 import           Data.Time.Calendar (Day, toGregorian, fromGregorian)
+import           Data.Time.Clock (getCurrentTime, addUTCTime)
 import           Data.Time.Clock.POSIX (POSIXTime, utcTimeToPOSIXSeconds)
 import           Data.Time.Format (parseTimeM, defaultTimeLocale)
-import           Data.Time.LocalTime (LocalTime(..), getTimeZone, TimeZone, localTimeToUTC, ZonedTime(..), getZonedTime, midnight, TimeOfDay(..))
+import           Data.Time.LocalTime (LocalTime(..), getTimeZone, TimeZone, localTimeToUTC, ZonedTime(..), getZonedTime, midnight, TimeOfDay(..), utcToZonedTime)
 import           Foreign.C.Types (CTime(..))
 import           System.IO (hPutStrLn, stderr)
 import qualified System.IO.Unsafe as Unsafe
@@ -164,7 +165,10 @@ reportUsage endp r = do
 
 slurmReport :: [BS.ByteString] -> Exporter
 slurmReport clusters = do
-  now <- liftIO getZonedTime
+  -- report on a half-hour delay...
+  nowt <- addUTCTime (-1800) <$> liftIO getCurrentTime
+  nowz <- liftIO $ getTimeZone nowt
+  let now = utcToZonedTime nowz nowt
   start <- queryTime now "year" "start"
   end <- queryTime now "hour" "end"
   let rng = (start, end)

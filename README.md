@@ -94,7 +94,9 @@ Timestamps may be specified as:
 - `year`: Jan 1 this year
 - YYYY-MM-DD[THH:MM[:SS]]
 
-Note that slurmdb is much faster at producing reports that cover only whole days.
+By default, all times (including "now") are delayed by 30 minutes to give slurm time to process rollups.
+Without this, we've observed non-monotonicity in report data.
+slurmdb is also often much faster at producing reports that cover only whole days, and so queries are split into initial whole-day segment and partial day, and cached for performance.
 
 ## Dashboards
 
