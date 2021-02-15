@@ -71,7 +71,7 @@ userLabels :: ReportUserRec -> Labels
 userLabels u = ("user", reportUserRecName u) :
   case filter (not . BS.null) (reportUserRecAcct u : reportUserRecAccts u) of
     [] -> []
-    (a:_) -> [("account",a)]
+    al -> [("account",BSC.intercalate "," al)]
 
 clusterLabels :: ReportClusterRec -> Labels
 clusterLabels c = [("cluster", reportClusterRecName c)]
