@@ -43,7 +43,7 @@ stats = prefix "stats" $ do
     gauge "count" Nothing (labeled "state"
       [ ("pending", statsInfoJobsPending)
       , ("running", statsInfoJobsRunning)
-      ]) (Just $ realToFrac statsInfoJobStatesTime)
+      ]) (realToFrac <$> statsInfoJobStatesTime)
   prefix "rpc_user" $ do
     counter "total"         Nothing (labeled "user"
       [ (statsInfoUser, statsInfoUserCnt)

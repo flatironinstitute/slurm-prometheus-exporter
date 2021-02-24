@@ -34,7 +34,7 @@ data StatsInfoResponseMsg = StatsInfoResponse
   , statsInfoJobsFailed
   , statsInfoJobsPending
   , statsInfoJobsRunning :: !Word32
-  , statsInfoJobStatesTime :: !CTime
+  , statsInfoJobStatesTime :: Maybe CTime
   , statsInfoRpcUser :: [StatsInfoUser]
   } deriving (Show)
 
@@ -49,9 +49,17 @@ instance Storable StatsInfoResponseMsg where
     <*> (#peek stats_info_response_msg_t, jobs_completed) p
     <*> (#peek stats_info_response_msg_t, jobs_canceled) p
     <*> (#peek stats_info_response_msg_t, jobs_failed) p
+#if SLURM_VERSION_NUMBER >= SLURM_VERSION_NUM(18,0,0)
     <*> (#peek stats_info_response_msg_t, jobs_pending) p
+#else
+    <*> return 0
+#endif
     <*> (#peek stats_info_response_msg_t, jobs_running) p
-    <*> (#peek stats_info_response_msg_t, job_states_ts) p
+#if SLURM_VERSION_NUMBER >= SLURM_VERSION_NUM(18,0,0)
+    <*> (Just <$> (#peek stats_info_response_msg_t, job_states_ts) p)
+#else
+    <*> return Nothing
+#endif
     <*> do
       nw <- (#peek stats_info_response_msg_t, rpc_user_size) p
       let n = fromIntegral (nw :: Word32)
