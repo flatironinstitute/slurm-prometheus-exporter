@@ -45,7 +45,7 @@ import qualified Network.Wai as Wai
 data Options = Options
   { optPort :: Int
   , optOpenMetrics :: Bool
-  , optReason, optJobId :: Bool
+  , optReason, optJobId, optNodelist :: Bool
   , optReportClusters :: [BS.ByteString]
   }
 

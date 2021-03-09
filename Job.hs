@@ -11,6 +11,7 @@ module Job
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as BSB
 import qualified Data.ByteString.Lazy as BSL
+import           Data.Foldable (fold)
 import           Data.Function (on)
 import           Data.List (foldl', maximumBy)
 import qualified Data.Map.Strict as Map
@@ -82,12 +83,12 @@ rle (x:l) = (x,c) : rle r where
   countx n (y:z) | y == x = countx (succ n) z
   countx n z = (n, z)
 
-jobDesc :: Bool -> Job -> Maybe JobDesc
-jobDesc withid Job{ jobInfo = JobInfo{..}, .. } = do
+jobDesc :: Bool -> Bool -> Job -> Maybe JobDesc
+jobDesc withid nodelist Job{ jobInfo = JobInfo{..}, .. } = do
   c <- jobState
   return $ JobDesc c jobInfoAccount jobInfoPartition jobInfoUser
     (if withid then jobInfoId else 0)
-    $ if null jobNodes then mempty else fst $ maximumBy (compare `on` snd) $ rle $ map nodeClass jobNodes
+    $ if nodelist then fold jobInfoNodes else if null jobNodes then mempty else fst $ maximumBy (compare `on` snd) $ rle $ map nodeClass jobNodes
 
 jobLabels :: Bool -> JobDesc -> Labels
 jobLabels withid JobDesc{..} =
@@ -101,10 +102,10 @@ jobLabels withid JobDesc{..} =
   (if jobClass == JobPending then [] else
   [ ("nodes", jobNodeClass) ])
 
-accountJobs :: Bool -> [Job] -> [(JobClass, Labels, Alloc)]
-accountJobs withid = map (\(d, a) -> (jobClass d, jobLabels withid d, a))
+accountJobs :: Bool -> Bool -> [Job] -> [(JobClass, Labels, Alloc)]
+accountJobs withid nodelist = map (\(d, a) -> (jobClass d, jobLabels withid d, a))
   . Map.toList
   . foldl' (\a j -> maybe id
       (\c -> Map.insertWith (<>) c (jobAlloc j))
-      (jobDesc withid j) a)
+      (jobDesc withid nodelist j) a)
     Map.empty

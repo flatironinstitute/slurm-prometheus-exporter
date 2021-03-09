@@ -27,6 +27,7 @@ Usage: slurm-exporter [OPTIONS]
   -p PORT     --port=PORT       listen on port [8090]
   -r          --reasons         include node drain reasons by default (may increase prometheus database size)
   -j          --jobids          include job ids by default (may increase prometheus database size)
+  -N          --nodelist        include job node list instead of label by default (will increase prometheus database size)
   -c CLUSTER  --report=CLUSTER  include sreport data from CLUSTER by default (may be repeated)
 ```
 
@@ -61,12 +62,13 @@ Job data is separated by the labels:
 - `account`
 - `partition`
 - `user`: resolved from UIDs locally
-- `nodes`: the first feature set on the majority of nodes in the job (only when included in /metrics)
+- `nodes`: the first feature set on the majority of nodes in the job (only when included in /metrics), or the hostlist (if enabled)
 - `jobid`: job number, if enabled
 
 Optional query parameters:
 
 - `jobids`: enables (non-empty) or disables (empty) including jobid (overrides `-j`)
+- `nodelist`: enables (non-empty) or disables (empty) replacing nodes with list of node names (overrides `-N`)
 
 ### /report
 

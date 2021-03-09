@@ -28,6 +28,9 @@ import Job
 import Node
 import Report
 
+getOpt :: Monad m => (Options -> Bool) -> BS.ByteString -> PrometheusT m Bool
+getOpt o q = maybe (asks (o . promOpts)) return =<< queryBool q
+
 stats :: Exporter
 stats = prefix "stats" $ do
   StatsInfoResponse{..} <- liftIO slurmGetStatistics
@@ -75,8 +78,9 @@ jobs (nt, nl) = prefix "job" $ do
   now <- liftIO epochTime
   let nm = nodeMap nl
       jl = map (jobFromInfo now nm) jil
-  withids <- maybe (asks (optJobId . promOpts)) return =<< queryBool "jobids"
-  allocGauges JobRunning True (max nt jt) $ accountJobs withids jl
+  withids <- getOpt optJobId "jobids"
+  nodelist <- getOpt optNodelist "nodelist"
+  allocGauges JobRunning True (max nt jt) $ accountJobs withids nodelist jl
   -- TODO: sacct completed?
 
 nodes :: PrometheusT IO (CTime, [Node])
@@ -84,7 +88,7 @@ nodes = prefix "node" $ do
   (nt, nil) <- liftIO slurmLoadNodes
   now <- liftIO epochTime
   let nl = map (nodeFromInfo now) nil
-  withreason <- maybe (asks (optReason . promOpts)) return =<< queryBool "reasons"
+  withreason <- getOpt optReason "reasons"
   allocGauges ResAlloc False nt $ accountNodes withreason nl
   return (nt, nl)
 
@@ -111,6 +115,7 @@ defOptions = Options
   , optOpenMetrics = False
   , optReason = False
   , optJobId = False
+  , optNodelist = False
   , optReportClusters = []
   }
 
@@ -124,7 +129,10 @@ options =
       ("include node drain reasons by default (may increase prometheus database size)")
   , Opt.Option "j" ["jobids"]
       (Opt.NoArg (\o -> o{ optJobId = True }))
-      ("include job ids by default (may increase prometheus database size)")
+      ("include job ids by default (will increase prometheus database size)")
+  , Opt.Option "N" ["nodelist"]
+      (Opt.NoArg (\o -> o{ optNodelist = True }))
+      ("include job node list instead of label by default (will increase prometheus database size)")
   , Opt.Option "c" ["report"]
       (Opt.ReqArg (\c o -> o{ optReportClusters = BSC.pack c : optReportClusters o }) "CLUSTER")
       "include sreport data from CLUSTER by default (may be repeated)"
