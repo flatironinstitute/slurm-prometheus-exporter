@@ -1,5 +1,5 @@
 FROM centos:7
-ARG SLURM_VERSION=18.08.9
+ARG SLURM_VERSION=20.02.6
 ADD https://download.schedmd.com/slurm/slurm-$SLURM_VERSION.tar.bz2 /tmp
 ADD https://get.haskellstack.org/ /tmp/getstack
 RUN yum -y install epel-release && \
@@ -8,6 +8,7 @@ RUN yum -y install epel-release && \
     useradd -u 450 slurm && \
     cd /tmp && tar xf slurm-$SLURM_VERSION.tar.bz2 && \
       cd slurm-$SLURM_VERSION && \
+      sed -i '/^SUBDIRS /s/\<doc\>//' Makefile.* && \
       ./configure --prefix=/usr && \
       make && \
       make install && \

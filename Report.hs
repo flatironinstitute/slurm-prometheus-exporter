@@ -11,6 +11,7 @@ import           Control.Arrow (second)
 import           Control.Concurrent.MVar (MVar, newMVar, readMVar, swapMVar)
 import           Control.Monad (void, when)
 import           Control.Monad.IO.Class (liftIO)
+import           Control.Monad.Reader.Class (asks)
 import           Control.Monad.Trans.Control (liftBaseOp)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
@@ -165,8 +166,8 @@ reportUsage endp r = do
 
 slurmReport :: [BS.ByteString] -> Exporter
 slurmReport clusters = do
-  -- report on a half-hour delay...
-  nowt <- addUTCTime (-1800) <$> liftIO getCurrentTime
+  delay <- asks (optReportDelay . promOpts)
+  nowt <- addUTCTime (negate delay) <$> liftIO getCurrentTime
   nowz <- liftIO $ getTimeZone nowt
   let now = utcToZonedTime nowz nowt
   start <- queryTime now "year" "start"
@@ -179,7 +180,7 @@ slurmReport clusters = do
       (t, tr) <- cachedQueryRange db now clusters timeCache (endd,   endt) (LocalTime endd   midnight, LocalTime endd endt)
       return (t, mergeLists dr tr))
     $ splitDays rng
-  reportUsage t r
+  reportUsage (t + delay) r
 
 historicalSlurmReports :: [BS.ByteString] -> Exporter
 historicalSlurmReports clusters = do

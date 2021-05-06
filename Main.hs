@@ -12,6 +12,7 @@ import           Data.Fixed (Fixed(..), Micro)
 import           Data.Functor (void)
 import           Data.Maybe (mapMaybe)
 import qualified Data.Text as T
+import           Data.Time.Clock (secondsToNominalDiffTime)
 import           Foreign.C.Types (CTime)
 import           Network.HTTP.Types (methodGet, notFound404, methodNotAllowed405)
 import qualified Network.Wai as Wai
@@ -117,6 +118,7 @@ defOptions = Options
   , optJobId = False
   , optNodelist = False
   , optReportClusters = []
+  , optReportDelay = 0
   }
 
 options :: [Opt.OptDescr (Options -> Options)]
@@ -136,6 +138,9 @@ options =
   , Opt.Option "c" ["report"]
       (Opt.ReqArg (\c o -> o{ optReportClusters = BSC.pack c : optReportClusters o }) "CLUSTER")
       "include sreport data from CLUSTER by default (may be repeated)"
+  , Opt.Option "d" ["delay"]
+      (Opt.ReqArg (\d o -> o{ optReportDelay = secondsToNominalDiffTime (read d) }) "SECs")
+      "offset report data by SEC seconds to avoid rollup discontinuities"
   , Opt.Option "o" ["open-metrics"]
       (Opt.NoArg (\o -> o{ optOpenMetrics = True }))
       ("export in OpenMetrics format (rather than prometheus text)")

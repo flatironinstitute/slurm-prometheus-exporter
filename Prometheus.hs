@@ -37,7 +37,7 @@ import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Builder.Prim as BP
 import           Data.Fixed (showFixed)
 import           Data.Maybe (listToMaybe)
-import           Data.Time.Clock (nominalDiffTimeToSeconds)
+import           Data.Time.Clock (NominalDiffTime, nominalDiffTimeToSeconds)
 import           Data.Time.Clock.POSIX (POSIXTime)
 import           Network.HTTP.Types (hContentType, ok200)
 import qualified Network.Wai as Wai
@@ -47,6 +47,7 @@ data Options = Options
   , optOpenMetrics :: Bool
   , optReason, optJobId, optNodelist :: Bool
   , optReportClusters :: [BS.ByteString]
+  , optReportDelay :: NominalDiffTime
   }
 
 data PromData = PromData
