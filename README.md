@@ -29,6 +29,8 @@ Usage: slurm-exporter [OPTIONS]
   -j          --jobids          include job ids by default (may increase prometheus database size)
   -N          --nodelist        include job node list instead of label by default (will increase prometheus database size)
   -c CLUSTER  --report=CLUSTER  include sreport data from CLUSTER by default (may be repeated)
+  -d SECs     --delay=SECs      offset report data by SEC seconds to avoid rollup discontinuities
+  -o          --open-metrics    export in OpenMetrics format (rather than prometheus text)
 ```
 
 The following endpoints are available:
@@ -86,6 +88,7 @@ Optional query parameters:
 - `cluster` (`report` with /metrics): name of cluster to limit report to, may be repeated, defaults to all clusters
 - `start`: start time for query range, defaults to `year` (metrics are returned as counters, so you should keep this value relatively fixed)
 - `end`: end time for query range, defaults to `hour` (queries are split into whole days + partial day as slurmdbd/mysql is much faster at these)
+- `historical`: if true, reports every value over the whole time range, either daily or hourly (if `hourly` is true), which can be used (with `-O`) to produce backfilling data
 
 Timestamps may be specified as:
 
@@ -96,8 +99,11 @@ Timestamps may be specified as:
 - `year`: Jan 1 this year
 - YYYY-MM-DD[THH:MM[:SS]]
 
-By default, all times (including "now") are delayed by 30 minutes to give slurm time to process rollups.
-Without this, we've observed non-monotonicity in report data.
+Although these values are reported as counters, in practice, slurm reporting data may sometimes exhibit non-monotonicity and decrease on later reports.
+This may be due to rollup corrections or updates after jobs finish, and we have seen some values decrease after multiple days.
+(On retroactive reporting, these issues disappear.)
+You use the -d option to try to work around these issues (shifts the concept of current time back by the given amount, so you're only looking at data after some time), though we have not found this to be a complete fix.
+
 slurmdb is also often much faster at producing reports that cover only whole days, and so queries are split into initial whole-day segment and partial day, and cached for performance.
 
 ## Dashboards
