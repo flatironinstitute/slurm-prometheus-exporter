@@ -52,4 +52,4 @@ executable slurm-exporter
   if flag(pkgconfig)
     pkgconfig-depends: slurm
   else
-    extra-libraries: slurmfull slurmdb
+    extra-libraries: slurmfull

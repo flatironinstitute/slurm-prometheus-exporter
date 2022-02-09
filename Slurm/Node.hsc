@@ -9,7 +9,7 @@ module Slurm.Node
   , nodeStateMixed
   , nodeStateDrain
   , nodeStateMaint
-  , nodeStateReboot
+  , nodeStateRebootRequest
   , nodeStateRes
   , NodeInfo(..)
   , unknownNodeInfo
@@ -46,7 +46,7 @@ newtype NodeState = NodeState Word32
   NODE_STATE_RES,       \
   NODE_STATE_DRAIN,     \
   NODE_STATE_MAINT,     \
-  NODE_STATE_REBOOT
+  NODE_STATE_REBOOT_REQUEST
 
 -- sort of a hacky, assymetric, broken "equals"
 instance Eq NodeState where
