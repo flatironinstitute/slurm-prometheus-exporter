@@ -156,7 +156,7 @@ main = do
       mapM_ putStrLn err
       putStrLn $ Opt.usageInfo ("Usage: " ++ prog ++ " [OPTIONS]\n") options
       exitFailure
-  Warp.run (optPort opts) $ \req resp ->
+  withSlurm Nothing $ Warp.run (optPort opts) $ \req resp ->
     case Wai.pathInfo req of
       [flip lookup exporters -> Just e]
         | Wai.requestMethod req == methodGet ->

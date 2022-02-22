@@ -24,6 +24,7 @@ executable slurm-exporter
     Prometheus,
     Slurm,
     Slurm.Internal,
+    Slurm.Init,
     Slurm.Hostlist,
     Slurm.Stats,
     Slurm.Job,

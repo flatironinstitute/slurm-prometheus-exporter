@@ -20,10 +20,11 @@ import           Control.Monad ((<=<))
 import qualified Data.ByteString as BS
 import           Data.Function (on)
 import           Data.List (sort)
-import           Data.Word (Word32, Word64)
+import           Data.Word (Word16, Word32, Word64)
 import           Foreign.C.Types (CInt(..), CBool(..), CTime(..))
+import           Foreign.Marshal.Error (throwIfNull)
 import           Foreign.Marshal.Utils (with, maybeWith, withMany, fromBool)
-import           Foreign.Ptr (Ptr)
+import           Foreign.Ptr (Ptr, nullPtr)
 import           Foreign.Storable (Storable(..))
 
 import Slurm.Internal
@@ -71,13 +72,16 @@ data ReportClusterRec = ReportClusterRec
   , reportClusterUsers :: [ReportUserRec]
   } deriving (Show)
 
-foreign import ccall unsafe slurmdb_connection_get :: IO DBConn
+foreign import ccall unsafe slurmdb_connection_get :: Ptr Word16 -> IO DBConn
 foreign import ccall unsafe slurmdb_connection_close :: Ptr DBConn -> IO CInt
 foreign import ccall unsafe slurmdb_report_user_top_usage :: DBConn -> Ptr UserCond -> CBool -> IO (List ReportClusterRec)
 
+getDBConn :: IO DBConn
+getDBConn = throwIfNull "slurmdb_connection_get" (slurmdb_connection_get nullPtr)
+
 withDBConn :: (DBConn -> IO a) -> IO a
 withDBConn = bracket
-  slurmdb_connection_get
+  getDBConn
   (\p -> throwIfError $ with p slurmdb_connection_close)
 
 bracketLazy :: IO a -> (a -> IO ()) -> (IO a -> IO b) -> IO b
@@ -88,7 +92,7 @@ bracketLazy get put run = bracket
 
 withLazyDBConn :: (IO DBConn -> IO a) -> IO a
 withLazyDBConn = bracketLazy
-  slurmdb_connection_get
+  getDBConn
   (\p -> throwIfError $ with p slurmdb_connection_close)
 
 instance Storable AssocCond where
