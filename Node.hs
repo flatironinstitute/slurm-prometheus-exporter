@@ -79,7 +79,7 @@ addNode :: Bool -> Node -> ResMap -> ResMap
 addNode withreason Node{..} = ar ResAlloc nodeAlloc
     { allocTime = if alloc then allocTime nodeAlloc else 0 }
   . ar (case nodeInfoState nodeInfo of
-    s | s == nodeStateDrain && s /= nodeStateReboot -> ResDrain
+    s | s == nodeStateDrain && s /= nodeStateRebootRequested -> ResDrain
       | s == nodeStateDown -> ResDown
       | s == nodeStateRes -> ResResv
       | otherwise -> ResFree)
