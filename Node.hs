@@ -40,7 +40,7 @@ nodeFromInfo now n@NodeInfo{..} = Node n
     { allocTRES = (parseTRES nodeInfoTRESAlloc){ tresNode = alloc }
     , allocJob = alloc
     , allocLoad = MkFixed $ maybe 0 toInteger nodeInfoLoad
-    , allocMem = 1024 * 1024 * (nodeInfoMem - nodeInfoMemFree)
+    , allocMem = 1024 * 1024 * (if nodeInfoMem > nodeInfoMemFree then nodeInfoMem - nodeInfoMemFree else 0)
     , allocTime = if nodeInfoBootTime == 0 then 0 else now - nodeInfoBootTime
     }
   where
