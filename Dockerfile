@@ -1,5 +1,5 @@
 FROM centos:7
-ARG SLURM_VERSION=20.02.6
+ARG SLURM_VERSION=21.08.8
 ADD https://download.schedmd.com/slurm/slurm-$SLURM_VERSION.tar.bz2 /tmp
 ADD https://get.haskellstack.org/ /tmp/getstack
 RUN yum -y install epel-release && \
