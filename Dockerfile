@@ -1,9 +1,9 @@
-FROM centos:7
-ARG SLURM_VERSION=21.08.8
+FROM rockylinux:8
+ARG SLURM_VERSION=22.05.8
 ADD https://download.schedmd.com/slurm/slurm-$SLURM_VERSION.tar.bz2 /tmp
 ADD https://get.haskellstack.org/ /tmp/getstack
 RUN yum -y install epel-release && \
-    yum -y install bzip2 zlib-devel munge-devel sssd-client && \
+    yum -y install perl make automake gcc gmp-devel libffi zlib xz tar git gnupg bzip2 zlib-devel munge-libs sssd-client && \
     sh /tmp/getstack && \
     useradd -u 450 slurm && \
     cd /tmp && tar xf slurm-$SLURM_VERSION.tar.bz2 && \
