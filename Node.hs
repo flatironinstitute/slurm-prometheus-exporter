@@ -14,7 +14,8 @@ module Node
 import           Control.Arrow ((&&&))
 import qualified Data.ByteString.Char8 as BSC
 import           Data.Fixed (Fixed(..))
-import           Data.List (foldl')
+import           Data.Foldable (fold)
+import           Data.List (foldl', find)
 import qualified Data.Map.Strict as Map
 import           System.Posix.Types (EpochTime)
 
@@ -34,7 +35,7 @@ nodeFromName n = Node unknownNodeInfo{ nodeInfoName = n } mempty mempty mempty
 
 nodeFromInfo :: EpochTime -> NodeInfo -> Node
 nodeFromInfo now n@NodeInfo{..} = Node n
-  (BSC.takeWhile (',' /=) nodeInfoFeatures)
+  (fold $ find ("local" /=) $ BSC.split ',' nodeInfoFeatures)
   (parseTRES nodeInfoTRES){ tresNode = 1 }
   Alloc
     { allocTRES = (parseTRES nodeInfoTRESAlloc){ tresNode = alloc }
