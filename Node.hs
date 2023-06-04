@@ -35,7 +35,7 @@ nodeFromName n = Node unknownNodeInfo{ nodeInfoName = n } mempty mempty mempty
 
 nodeFromInfo :: EpochTime -> NodeInfo -> Node
 nodeFromInfo now n@NodeInfo{..} = Node n
-  (fold $ find ("local" /=) $ BSC.split ',' nodeInfoFeatures)
+  (fold $ find (`notElem` ["local","location=local"]) $ BSC.split ',' nodeInfoFeatures)
   (parseTRES nodeInfoTRES){ tresNode = 1 }
   Alloc
     { allocTRES = (parseTRES nodeInfoTRESAlloc){ tresNode = alloc }
