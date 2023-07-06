@@ -1,15 +1,16 @@
 FROM rockylinux:8
-ARG SLURM_VERSION=22.05.8
-ADD https://download.schedmd.com/slurm/slurm-$SLURM_VERSION.tar.bz2 /tmp
 ADD https://get.haskellstack.org/ /tmp/getstack
-RUN yum -y install epel-release && \
-    yum -y install perl make automake gcc gmp-devel libffi zlib xz tar git gnupg bzip2 zlib-devel munge-libs sssd-client && \
+ARG SLURM_VERSION=22.05.9
+ADD https://download.schedmd.com/slurm/slurm-$SLURM_VERSION.tar.bz2 /tmp
+RUN dnf -y install epel-release dnf-plugins-core && \
+    dnf config-manager --set-enabled powertools && \
+    dnf -y install perl make automake gcc gmp-devel libffi zlib xz tar git gnupg bzip2 zlib-devel munge-devel sssd-client && \
     sh /tmp/getstack && \
     useradd -u 450 slurm && \
     cd /tmp && tar xf slurm-$SLURM_VERSION.tar.bz2 && \
       cd slurm-$SLURM_VERSION && \
       sed -i '/^SUBDIRS /s/\<doc\>//' Makefile.* && \
-      ./configure --prefix=/usr && \
+      ./configure --prefix=/usr --with-munge=/usr && \
       make && \
       make install && \
     ldconfig && \
