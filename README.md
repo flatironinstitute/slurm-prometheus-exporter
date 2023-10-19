@@ -26,8 +26,9 @@ Usage: slurm-exporter [OPTIONS]
 
   -p PORT     --port=PORT       listen on port [8090]
   -r          --reasons         include node drain reasons by default (may increase prometheus database size)
-  -j          --jobids          include job ids by default (may increase prometheus database size)
+  -j          --jobids          include job ids by default (will increase prometheus database size)
   -N          --nodelist        include job node list instead of label by default (will increase prometheus database size)
+  -G          --gputypes        include gpu types in slurm_job_gpus by default
   -c CLUSTER  --report=CLUSTER  include sreport data from CLUSTER by default (may be repeated)
   -d SECs     --delay=SECs      offset report data by SEC seconds to avoid rollup discontinuities
   -o          --open-metrics    export in OpenMetrics format (rather than prometheus text)
@@ -54,6 +55,7 @@ Node data is labeled by:
 Optional query parameters:
 
 - `reasons`: enables (non-empty) or disables (empty) including drain reasons in state labels (overrides `-r`)
+- `gputypes`: enables (non-empty) or disables (empty) including gputype labels and counts based on gres gpu:types rather than tres (overrides `-G`)
 
 ### /jobs
 
@@ -71,6 +73,7 @@ Optional query parameters:
 
 - `jobids`: enables (non-empty) or disables (empty) including jobid (overrides `-j`)
 - `nodelist`: enables (non-empty) or disables (empty) replacing nodes with list of node names (overrides `-N`)
+- `gputypes`: enables (non-empty) or disables (empty) including gputype labels and counts based on gres gpu:types rather than tres (overrides `-G`)
 
 ### /report
 

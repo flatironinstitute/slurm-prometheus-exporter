@@ -45,7 +45,7 @@ import qualified Network.Wai as Wai
 data Options = Options
   { optPort :: Int
   , optOpenMetrics :: Bool
-  , optReason, optJobId, optNodelist :: Bool
+  , optReason, optJobId, optNodelist, optGpuType :: Bool
   , optReportClusters :: [BS.ByteString]
   , optReportDelay :: NominalDiffTime
   }

@@ -70,6 +70,7 @@ data JobInfo = JobInfo
   , jobInfoStartTime
   , jobInfoEndTime :: !CTime
   , jobInfoTRES :: !BS.ByteString
+  , jobInfoGRES :: !BS.ByteString
   } deriving (Show)
 
 instance Storable JobInfo where
@@ -90,6 +91,7 @@ instance Storable JobInfo where
     <*> (packCString
         =<< maybe ((#peek slurm_job_info_t, tres_req_str) p) return . maybePtr
         =<< (#peek slurm_job_info_t, tres_alloc_str) p)
+    <*> (packCString =<< (#peek slurm_job_info_t, gres_total) p)
   poke = error "poke JobInfo not implemented"
 
 data JobInfoMsg

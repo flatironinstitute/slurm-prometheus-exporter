@@ -27,23 +27,28 @@ data Node = Node
   { nodeInfo :: !NodeInfo
   , nodeClass :: NodeName
   , nodeTRES :: TRES 
+  , nodeGPUs :: GRES
   , nodeAlloc :: Alloc
   } deriving (Show)
 
 nodeFromName :: NodeName -> Node
-nodeFromName n = Node unknownNodeInfo{ nodeInfoName = n } mempty mempty mempty
+nodeFromName n = Node unknownNodeInfo{ nodeInfoName = n } mempty mempty mempty mempty
 
 nodeFromInfo :: EpochTime -> NodeInfo -> Node
-nodeFromInfo now n@NodeInfo{..} = Node n
-  (fold $ find (`notElem` ["local","location=local"]) $ BSC.split ',' nodeInfoFeatures)
-  (parseTRES nodeInfoTRES){ tresNode = 1 }
-  Alloc
+nodeFromInfo now n@NodeInfo{..} = Node
+  { nodeInfo = n
+  , nodeClass = fold $ find (`notElem` ["local","location=local"]) $ BSC.split ',' nodeInfoFeatures
+  , nodeTRES = (parseTRES nodeInfoTRES){ tresNode = 1 }
+  , nodeGPUs = parseGPUs nodeInfoGRES
+  , nodeAlloc = Alloc
     { allocTRES = (parseTRES nodeInfoTRESAlloc){ tresNode = alloc }
     , allocJob = alloc
     , allocLoad = MkFixed $ maybe 0 toInteger nodeInfoLoad
     , allocMem = 1024 * 1024 * (if nodeInfoMem > nodeInfoMemFree then nodeInfoMem - nodeInfoMemFree else 0)
     , allocTime = if nodeInfoBootTime == 0 then 0 else now - nodeInfoBootTime
+    , allocGPUs = parseGPUs nodeInfoGRESAlloc
     }
+  }
   where
   alloc :: Integral i => i
   alloc = if nodeInfoState == nodeStateAllocated then 1 else 0
@@ -86,6 +91,7 @@ addNode withreason Node{..} = ar ResAlloc nodeAlloc
       | otherwise -> ResFree)
     mempty
       { allocTRES = nodeTRES - allocTRES nodeAlloc
+      , allocGPUs = nodeGPUs - allocGPUs nodeAlloc
       , allocTime = if alloc then 0 else allocTime nodeAlloc
       }
   where

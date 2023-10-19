@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns #-}
 
-import           Control.Arrow ((&&&), second)
+import           Control.Arrow (first, second)
 import           Control.Monad (when, mfilter)
 import           Control.Monad.IO.Class (liftIO)
 import           Control.Monad.Reader.Class (asks)
@@ -10,6 +10,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import           Data.Fixed (Fixed(..), Micro)
 import           Data.Functor (void)
+import qualified Data.Map.Strict as Map
 import           Data.Maybe (mapMaybe)
 import qualified Data.Text as T
 import           Data.Time.Clock (secondsToNominalDiffTime)
@@ -56,22 +57,33 @@ stats = prefix "stats" $ do
       [ (statsInfoUser, MkFixed (toInteger statsInfoUserTime) :: Micro)
       | StatsInfoUser{..} <- statsInfoRpcUser]) Nothing
 
-allocGauges :: (Eq a, Labeled a) => a -> Bool -> CTime -> [(a, Labels, Alloc)] -> Exporter
-allocGauges m c _ la = do
+allocGauges :: (Eq a, Labeled a) => a -> Bool -> Bool -> CTime -> [(a, Labels, Alloc)] -> Exporter
+allocGauges m c gputype _ la = do
   when c $ f    allocJob   lr "count" "count of active jobs"
   f (tresNode . allocTRES) lr "nodes" "count of allocated/requested nodes"
   f (tresCPU  . allocTRES) lr "cpus"  "count of allocated/requested CPU cores"
   f (tresMem  . allocTRES) lr "bytes" "total size of allocated/requested memory"
-  f (tresGPU  . allocTRES) lr "gpus"  "count of allocated/requested GPUs"
+  (if gputype then g else f)
+    (tresGPU  . allocTRES) lr "gpus"  "count of allocated/requested GPUs"
   f             allocTime  lr "seconds" "total job run/wait time"
   f             allocLoad  ls "load"  "total load of allocated nodes"
   f             allocMem   ls "used_bytes" "total size of used memory"
   where
-  f a l n h = gauge n (Just h) (second a <$> l) Nothing
-  (ls, lr) = (unlab &&& map lab) la
+  mkg l n h = gauge n (Just h) l Nothing
+  f a l = mkg (second a <$> l)
+  g _ l = mkg (foldMap gpulab l)
+  ls = unlab la
+  lr = map lab la
   unlab ((x, l, r) : s) | x == m = (l, r) : unlab s
   unlab _ = []
   lab (a, l, r) = (("state", label a) : l, r)
+  gpulab (l, a)
+    | not (null gs) = gs
+    | gn /= 0 = [(l, gn)]
+    | otherwise = []
+    where
+    gs = map (first $ (: l) . (,) "gputype") $ Map.toList $ gresMap $ allocGPUs a
+    gn = tresGPU $ allocTRES a
 
 jobs :: (CTime, [Node]) -> Exporter
 jobs (nt, nl) = prefix "job" $ do
@@ -81,7 +93,8 @@ jobs (nt, nl) = prefix "job" $ do
       jl = map (jobFromInfo now nm) jil
   withids <- getOpt optJobId "jobids"
   nodelist <- getOpt optNodelist "nodelist"
-  allocGauges JobRunning True (max nt jt) $ accountJobs withids nodelist jl
+  gputype <- getOpt optGpuType "gputypes"
+  allocGauges JobRunning True gputype (max nt jt) $ accountJobs withids nodelist jl
   -- TODO: sacct completed?
 
 nodes :: PrometheusT IO (CTime, [Node])
@@ -90,7 +103,8 @@ nodes = prefix "node" $ do
   now <- liftIO epochTime
   let nl = map (nodeFromInfo now) nil
   withreason <- getOpt optReason "reasons"
-  allocGauges ResAlloc False nt $ accountNodes withreason nl
+  gputype <- getOpt optGpuType "gputypes"
+  allocGauges ResAlloc False gputype nt $ accountNodes withreason nl
   return (nt, nl)
 
 report :: Bool -> Exporter
@@ -116,6 +130,7 @@ defOptions = Options
   , optOpenMetrics = False
   , optReason = False
   , optJobId = False
+  , optGpuType = False
   , optNodelist = False
   , optReportClusters = []
   , optReportDelay = 0
@@ -135,6 +150,9 @@ options =
   , Opt.Option "N" ["nodelist"]
       (Opt.NoArg (\o -> o{ optNodelist = True }))
       ("include job node list instead of label by default (will increase prometheus database size)")
+  , Opt.Option "G" ["gputypes"]
+      (Opt.NoArg (\o -> o{ optGpuType = True }))
+      ("include gpu types in slurm_*_gpus by default")
   , Opt.Option "c" ["report"]
       (Opt.ReqArg (\c o -> o{ optReportClusters = BSC.pack c : optReportClusters o }) "CLUSTER")
       "include sreport data from CLUSTER by default (may be repeated)"

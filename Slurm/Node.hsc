@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
 module Slurm.Node
@@ -64,6 +65,8 @@ data NodeInfo = NodeInfo
   , nodeInfoBootTime :: !CTime
   , nodeInfoTRES
   , nodeInfoTRESAlloc :: !BS.ByteString
+  , nodeInfoGRES
+  , nodeInfoGRESAlloc :: !BS.ByteString
   , nodeInfoMem
   , nodeInfoMemFree :: !Word64
   , nodeInfoFeatures :: !BS.ByteString
@@ -77,6 +80,8 @@ unknownNodeInfo = NodeInfo
   0
   Nothing
   0
+  mempty
+  mempty
   mempty
   mempty
   0
@@ -109,6 +114,8 @@ instance Storable NodeInfo where
       s <- maybe (return mempty) packCString sp
       mapM_ slurmFree sp
       return s)
+    <*> (packCString =<< (#peek node_info_t, gres) p)
+    <*> (packCString =<< (#peek node_info_t, gres_used) p)
     <*> (#peek node_info_t, real_memory) p
     <*> (#peek node_info_t, free_mem) p
     <*> (packCString =<< (#peek node_info_t, features) p)
@@ -132,7 +139,7 @@ nodeInfo = Unsafe.unsafePerformIO $ newMVar =<< newForeignPtr_ nullPtr
 
 slurmLoadNodes :: IO (CTime, [NodeInfo])
 slurmLoadNodes = loadWhenChanged nodeInfo
-  (\p r -> slurm_load_node p r (#const SHOW_ALL))
+  (\p r -> slurm_load_node p r (#const SHOW_ALL | SHOW_DETAIL))
   slurm_free_node_info_msg_ptr
   (#peek node_info_msg_t, last_update)
   peekNodes

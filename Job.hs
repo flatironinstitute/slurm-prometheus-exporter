@@ -45,6 +45,7 @@ jobFromInfo now nm j@JobInfo{..} = Job j state nodes
         Nothing -> jobInfoEndTime - jobInfoStartTime
         Just JobPending -> now - jobInfoSubmitTime
         Just JobRunning -> now - jobInfoStartTime
+    , allocGPUs = parseGPUs jobInfoGRES
     }
   where
   state = case jobInfoState of
