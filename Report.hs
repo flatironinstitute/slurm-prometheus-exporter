@@ -12,7 +12,6 @@ import           Control.Concurrent.MVar (MVar, newMVar, readMVar, swapMVar)
 import           Control.Monad (void, when)
 import           Control.Monad.IO.Class (liftIO)
 import           Control.Monad.Reader.Class (asks)
-import           Control.Monad.Trans.Control (liftBaseOp)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import           Data.List ((\\))
@@ -164,8 +163,8 @@ reportUsage endp r = do
       ]
       (Just endp)
 
-slurmReport :: [BS.ByteString] -> Exporter
-slurmReport clusters = do
+slurmReport :: [BS.ByteString] -> IO DBConn -> Exporter
+slurmReport clusters db = do
   delay <- asks (optReportDelay . promOpts)
   nowt <- addUTCTime (negate delay) <$> liftIO getCurrentTime
   nowz <- liftIO $ getTimeZone nowt
@@ -173,7 +172,7 @@ slurmReport clusters = do
   start <- queryTime now "year" "start"
   end <- queryTime now "hour" "end"
   let rng = (start, end)
-  (t, r) <- liftIO $ withLazyDBConn $ \db -> maybe
+  (t, r) <- liftIO $ maybe
     (queryRange db now clusters rng)
     (\(startd, endd, endt) -> do
       (_, dr) <- cachedQueryRange db now clusters dayCache  (startd, endd) (LocalTime startd midnight, LocalTime endd midnight)
@@ -182,27 +181,26 @@ slurmReport clusters = do
     $ splitDays rng
   reportUsage (t + delay) r
 
-historicalSlurmReports :: [BS.ByteString] -> Exporter
-historicalSlurmReports clusters = do
+historicalSlurmReports :: [BS.ByteString] -> IO DBConn -> Exporter
+historicalSlurmReports clusters db = do
   now <- liftIO getZonedTime
   start <- queryTime now "year" "start"
   end <- queryTime now "hour" "end"
   hourly <- or <$> queryBool "hourly"
   maybe (fail "invalid time range") (\(startd, endd, endt) -> do
-    liftBaseOp withLazyDBConn $ \db -> do
-      let loopDays d
-            | d > endd = return ()
-            | otherwise = do
-              liftIO $ print d
-              (t, dr) <- liftIO $ queryRange db now clusters (start, LocalTime d midnight)
-              reportUsage t dr
-              when hourly $ loopHours d dr 1
-              loopDays (succ d)
-          loopHours d dr h
-            | h > if d == endd then todHour endt else 23 = return ()
-            | otherwise = do
-              liftIO $ print (d, h)
-              (t, tr) <- liftIO $ queryRange db now clusters (LocalTime d midnight, LocalTime d (TimeOfDay h 0 0))
-              reportUsage t $ mergeLists dr tr
-              loopHours d dr (succ h)
-      loopDays startd) $ splitDays (start, end)
+    let loopDays d
+          | d > endd = return ()
+          | otherwise = do
+            liftIO $ print d
+            (t, dr) <- liftIO $ queryRange db now clusters (start, LocalTime d midnight)
+            reportUsage t dr
+            when hourly $ loopHours d dr 1
+            loopDays (succ d)
+        loopHours d dr h
+          | h > if d == endd then todHour endt else 23 = return ()
+          | otherwise = do
+            liftIO $ print (d, h)
+            (t, tr) <- liftIO $ queryRange db now clusters (LocalTime d midnight, LocalTime d (TimeOfDay h 0 0))
+            reportUsage t $ mergeLists dr tr
+            loopHours d dr (succ h)
+    loopDays startd) $ splitDays (start, end)

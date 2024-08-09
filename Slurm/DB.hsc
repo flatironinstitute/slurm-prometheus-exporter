@@ -7,19 +7,26 @@ module Slurm.DB
   , AssocCond(..)
   , UserCond(..)
   , TRESRec(..)
+  , QOSRec(..)
   , ReportUserRec(..)
   , ReportClusterRec(..)
   , reportUserTopUsage
   , mergeLists
+  , getTRES
+  , getQOS
+  , parseTRESStr
   ) where
 
 import           Control.Arrow ((&&&))
 import           Control.Concurrent.MVar (newMVar, takeMVar, modifyMVar)
 import           Control.Exception (bracket)
-import           Control.Monad ((<=<))
+import           Control.Monad ((<=<), guard)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import           Data.Function (on)
+import qualified Data.IntMap as IM
 import           Data.List (sort)
+import           Data.Maybe (mapMaybe)
 import           Data.Word (Word16, Word32, Word64)
 import           Foreign.C.Types (CInt(..), CBool(..), CTime(..))
 import           Foreign.Marshal.Error (throwIfNull)
@@ -72,17 +79,30 @@ data ReportClusterRec = ReportClusterRec
   , reportClusterUsers :: [ReportUserRec]
   } deriving (Show)
 
+data QOSRec = QOSRec
+  { qosRecName :: !BS.ByteString
+  , qosGrpTRES :: !BS.ByteString
+  , qosMaxTRESPU :: !BS.ByteString
+  }
+
+
 foreign import ccall unsafe slurmdb_connection_get :: Ptr Word16 -> IO DBConn
 foreign import ccall unsafe slurmdb_connection_close :: Ptr DBConn -> IO CInt
+foreign import ccall unsafe slurmdb_tres_get :: DBConn -> Ptr tresCond -> IO (List TRESRec)
 foreign import ccall unsafe slurmdb_report_user_top_usage :: DBConn -> Ptr UserCond -> CBool -> IO (List ReportClusterRec)
+foreign import ccall unsafe slurmdb_qos_get :: DBConn -> Ptr qosCond -> IO (List QOSRec)
+
 
 getDBConn :: IO DBConn
 getDBConn = throwIfNull "slurmdb_connection_get" (slurmdb_connection_get nullPtr)
 
+closeDBConn :: DBConn -> IO ()
+closeDBConn c = throwIfError $ with c slurmdb_connection_close
+
 withDBConn :: (DBConn -> IO a) -> IO a
 withDBConn = bracket
   getDBConn
-  (\p -> throwIfError $ with p slurmdb_connection_close)
+  closeDBConn
 
 bracketLazy :: IO a -> (a -> IO ()) -> (IO a -> IO b) -> IO b
 bracketLazy get put run = bracket
@@ -93,7 +113,7 @@ bracketLazy get put run = bracket
 withLazyDBConn :: (IO DBConn -> IO a) -> IO a
 withLazyDBConn = bracketLazy
   getDBConn
-  (\p -> throwIfError $ with p slurmdb_connection_close)
+  closeDBConn
 
 instance Storable AssocCond where
   sizeOf _    = #size slurmdb_assoc_cond_t
@@ -164,9 +184,30 @@ instance Storable ReportClusterRec where
     <*> (peekList =<< (#peek slurmdb_report_cluster_rec_t, user_list) p)
   poke = error "poke ReportClusterRec not implemented"
 
+instance Storable QOSRec where
+  sizeOf _    = #size slurmdb_qos_rec_t
+  alignment _ = #alignment slurmdb_qos_rec_t
+  peek p = QOSRec
+    <$> (packCString =<< (#peek slurmdb_qos_rec_t, name) p)
+    <*> (packCString =<< (#peek slurmdb_qos_rec_t, grp_tres) p)
+    <*> (packCString =<< (#peek slurmdb_qos_rec_t, max_tres_pu) p)
+  poke = error "poke QOSRec not implemented"
+
+getTRES :: DBConn -> IO [TRESRec]
+getTRES db = bracket
+  (slurmdb_tres_get db nullPtr)
+  slurm_list_destroy
+  peekList
+
 reportUserTopUsage :: DBConn -> UserCond -> Bool -> IO [ReportClusterRec]
 reportUserTopUsage db c g = withUserCond c $ \cp -> bracket
   (slurmdb_report_user_top_usage db cp (fromBool g))
+  slurm_list_destroy
+  peekList
+
+getQOS :: DBConn -> IO [QOSRec]
+getQOS db = bracket
+  (slurmdb_qos_get db nullPtr)
   slurm_list_destroy
   peekList
 
@@ -207,3 +248,16 @@ instance Semigroup ReportClusterRec where
     { reportClusterTRES = on mergeLists reportClusterTRES a b
     , reportClusterUsers = on mergeSortedLists reportClusterUsers a b
     }
+
+parseTRESStr :: [TRESRec] -> BS.ByteString -> [(TRESRec, Integer)]
+parseTRESStr treslist = mapMaybe parset . BSC.split ',' where
+  parset s = do
+    let (t, r) = BSC.break ('=' ==) s
+    ('=', ns) <- BSC.uncons r
+    (ti, tir) <- BSC.readInt t
+    guard $ BSC.null tir
+    tt <- IM.lookup ti tresmap
+    (n, nr) <- BSC.readInteger ns
+    guard $ BSC.null nr
+    return (tt, n)
+  tresmap = IM.fromList $ map (fromIntegral . tresRecId &&& id) treslist

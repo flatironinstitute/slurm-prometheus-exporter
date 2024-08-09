@@ -4,7 +4,7 @@ ARG SLURM_VERSION=22.05.9
 ADD https://download.schedmd.com/slurm/slurm-$SLURM_VERSION.tar.bz2 /tmp
 RUN dnf -y install epel-release dnf-plugins-core && \
     dnf config-manager --set-enabled powertools && \
-    dnf -y install perl make automake gcc gmp-devel libffi zlib xz tar git gnupg bzip2 zlib-devel munge-devel sssd-client && \
+    dnf -y install perl make automake gcc gcc-c++ gmp-devel libffi zlib xz tar git gnupg bzip2 zlib-devel munge-devel sssd-client && \
     sh /tmp/getstack && \
     useradd -u 450 slurm && \
     cd /tmp && tar xf slurm-$SLURM_VERSION.tar.bz2 && \

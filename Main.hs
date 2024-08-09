@@ -3,13 +3,14 @@
 {-# LANGUAGE ViewPatterns #-}
 
 import           Control.Arrow (first, second)
-import           Control.Monad (when, mfilter)
+import           Control.Monad (when, mfilter, guard, forM_)
 import           Control.Monad.IO.Class (liftIO)
 import           Control.Monad.Reader.Class (asks)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import           Data.Fixed (Fixed(..), Micro)
 import           Data.Functor (void)
+import           Data.List (foldl')
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (mapMaybe)
 import qualified Data.Text as T
@@ -32,6 +33,8 @@ import Report
 
 getOpt :: Monad m => (Options -> Bool) -> BS.ByteString -> PrometheusT m Bool
 getOpt o q = maybe (asks (o . promOpts)) return =<< queryBool q
+
+type SlurmExporter = IO DBConn -> Exporter
 
 stats :: Exporter
 stats = prefix "stats" $ do
@@ -107,21 +110,39 @@ nodes = prefix "node" $ do
   allocGauges ResAlloc False gputype nt $ accountNodes withreason nl
   return (nt, nl)
 
-report :: Bool -> Exporter
-report al = do
+report :: Bool -> SlurmExporter
+report al db = do
   rl <- query (if al then "cluster" else "report")
   hist <- or <$> queryBool "historical"
   cl <- if null rl then asks (optReportClusters . promOpts) else return (mapMaybe (mfilter (not . BS.null)) rl)
-  when (al || not (null cl)) $ prefix "report" $ (if hist then historicalSlurmReports else slurmReport) cl
+  when (al || not (null cl)) $ prefix "report" $ (if hist then historicalSlurmReports else slurmReport) cl db
 
-exporters :: [(T.Text, Exporter)]
+qos :: SlurmExporter
+qos dbc = prefix "qos" $ do
+  db <- liftIO dbc
+  ptres <- liftIO $ parseTRESStr <$> getTRES db -- could probably be cached, whatever
+  qosl <- liftIO $ getQOS db
+  forM_ [("grptres", qosGrpTRES), ("maxtrespu", qosMaxTRESPU)] $ \(trest, qtres) -> prefix trest $ do
+    mapM_ (\(t, v) -> gauge t Nothing v Nothing) $ Map.toList $ foldl' (\m' q ->
+      foldl' (\m (t, n) ->
+        Map.insertWith (++) (tresRecType t)
+          [ ([("qos", qosRecName q)] ++
+              (("gres", tresRecName t) <$ guard (tresRecType t == "gres"))
+            , n)
+          ] m)
+        m' (ptres (qtres q)))
+      Map.empty qosl
+    
+
+exporters :: [(T.Text, SlurmExporter)]
 exporters =
-  [ ("probe", return ())
-  , ("stats", stats)
-  , ("nodes", void nodes)
-  , ("jobs", jobs (0, []))
+  [ ("probe", \_ -> return ())
+  , ("stats", \_ -> stats)
+  , ("nodes", \_ -> void nodes)
+  , ("jobs", \_ -> jobs (0, []))
   , ("report", report True)
-  , ("metrics", stats >> nodes >>= jobs >> report False)
+  , ("qos", qos)
+  , ("metrics", \db -> stats >> qos db >> nodes >>= jobs >> report False db)
   ]
 
 defOptions :: Options
@@ -177,7 +198,7 @@ main = do
   withSlurm Nothing $ Warp.run (optPort opts) $ \req resp ->
     case Wai.pathInfo req of
       [flip lookup exporters -> Just e]
-        | Wai.requestMethod req == methodGet ->
-          resp $ response opts req (prefix "slurm" e)
+        | Wai.requestMethod req == methodGet -> withLazyDBConn $ \db ->
+          resp $ response opts req (prefix "slurm" $ e db)
         | otherwise -> resp $ Wai.responseLBS methodNotAllowed405 [] mempty
       _ -> resp $ Wai.responseLBS notFound404 [] mempty
