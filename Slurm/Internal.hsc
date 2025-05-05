@@ -9,6 +9,7 @@ import           Control.Monad ((<=<), mfilter)
 import qualified Data.ByteString as BS
 import           Data.Foldable (fold)
 import           Data.Maybe (fromMaybe)
+import           Foreign.C.Error (Errno(..), getErrno)
 import           Foreign.C.String (CString, peekCString, withCString)
 import           Foreign.C.Types (CInt(..), CTime(..))
 import           Foreign.ForeignPtr (ForeignPtr, newForeignPtr, withForeignPtr, FinalizerPtr)
@@ -37,19 +38,14 @@ maybeCString = maybePeek BS.packCString
 packCString :: CString -> IO BS.ByteString
 packCString = fmap fold . maybeCString
 
-foreign import ccall unsafe slurm_strerror :: CInt -> CString
-foreign import ccall unsafe slurm_get_errno :: IO CInt
+foreign import ccall unsafe slurm_strerror :: Errno -> CString
 
-{-# NOINLINE errnoLock #-}
-errnoLock :: MVar ()
-errnoLock = Unsafe.unsafePerformIO $ newMVar ()
-
-checkError :: IO CInt -> IO (Maybe CInt)
-checkError f = withMVar errnoLock $ \() -> do
+checkError :: IO CInt -> IO (Maybe Errno)
+checkError f = do
   e <- f
-  if e == (#const SLURM_SUCCESS) then return Nothing else Just <$> slurm_get_errno
+  if e == (#const SLURM_SUCCESS) then return Nothing else Just <$> getErrno
 
-throwError :: CInt -> IO ()
+throwError :: Errno -> IO ()
 throwError = ioError . userError <=< peekCString . slurm_strerror
 
 throwIfError :: IO CInt -> IO ()
@@ -125,7 +121,7 @@ loadWhenChanged mv load free lastup f = modifyMVar mv $ \info ->
     err <- checkError $ load prev resp
     info' <- maybe
       (newForeignPtr free =<< peek resp)
-      (\e -> info <$ if e == (#const SLURM_NO_CHANGE_IN_DATA)
+      (\e -> info <$ if e == Errno (#const SLURM_NO_CHANGE_IN_DATA)
         then return ()
         else throwError e)
       err
