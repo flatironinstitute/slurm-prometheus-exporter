@@ -1,6 +1,6 @@
 FROM rockylinux:8
 ADD https://get.haskellstack.org/ /tmp/getstack
-ARG SLURM_VERSION=24.11.4
+ARG SLURM_VERSION=24.11.6
 ADD https://download.schedmd.com/slurm/slurm-$SLURM_VERSION.tar.bz2 /tmp
 RUN dnf -y install epel-release dnf-plugins-core && \
     dnf config-manager --set-enabled powertools && \

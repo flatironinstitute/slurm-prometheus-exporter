@@ -63,8 +63,8 @@ data NodeRes
   | ResFree
   | ResDrain
   | ResResv
-  | ResDown
   | ResMaint
+  | ResDown
   deriving (Eq, Ord, Show)
 
 instance Labeled NodeRes where
@@ -72,8 +72,8 @@ instance Labeled NodeRes where
   label ResFree = "free"
   label ResDrain = "drain"
   label ResResv = "resv"
-  label ResDown = "down"
   label ResMaint = "maint"
+  label ResDown = "down"
 
 data NodeDesc = NodeDesc
   { descRes :: !NodeRes
@@ -87,10 +87,10 @@ addNode :: Bool -> Node -> ResMap -> ResMap
 addNode withreason Node{..} = ar ResAlloc nodeAlloc
     { allocTime = if alloc then allocTime nodeAlloc else 0 }
   . ar (case nodeInfoState nodeInfo of
-    s | s == nodeStateRes -> ResResv
+    s | s == nodeStateMaint -> ResMaint
+      | s == nodeStateRes -> ResResv
       | s == nodeStateDrain && s /= nodeStateRebootRequested -> ResDrain
       | s == nodeStateDown -> ResDown
-      | s == nodeStateMaint -> ResMaint
       | otherwise -> ResFree)
     mempty
       { allocTRES = nodeTRES - allocTRES nodeAlloc
