@@ -88,8 +88,8 @@ addNode withreason Node{..} = ar ResAlloc nodeAlloc
     { allocTime = if alloc then allocTime nodeAlloc else 0 }
   . ar (case nodeInfoState nodeInfo of
     s | s == nodeStateMaint -> ResMaint
-      | s == nodeStateRes -> ResResv
       | s == nodeStateDrain && s /= nodeStateRebootRequested -> ResDrain
+      | s == nodeStateRes -> ResResv
       | s == nodeStateDown -> ResDown
       | otherwise -> ResFree)
     mempty
