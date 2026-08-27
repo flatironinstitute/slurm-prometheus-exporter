@@ -89,16 +89,6 @@ unknownNodeInfo = NodeInfo
   mempty
   mempty
 
-foreign import ccall unsafe slurm_get_select_nodeinfo :: Ptr DynamicPluginData -> CInt -> CInt -> Ptr a -> IO CInt
-
-getSelectNodeinfo :: Storable a => Ptr NodeInfo -> CInt -> CInt -> IO (Maybe a)
-getSelectNodeinfo np dt st = alloca $ \p -> do
-  dyn <- (#peek node_info_t, select_nodeinfo) np
-  r <- slurm_get_select_nodeinfo dyn dt st p
-  if r == 0
-    then Just <$> peek p
-    else return Nothing
-
 instance Storable NodeInfo where
   sizeOf _    = #size node_info_t
   alignment _ = #alignment node_info_t
@@ -109,11 +99,7 @@ instance Storable NodeInfo where
     <*> (mfilter (/= #const NO_VAL) . Just <$> (#peek node_info_t, cpu_load) p)
     <*> (#peek node_info_t, boot_time) p
     <*> (packCString =<< (#peek node_info_t, tres_fmt_str) p)
-    <*> (do
-      sp <- getSelectNodeinfo p (#const SELECT_NODEDATA_TRES_ALLOC_FMT_STR) (#const NODE_STATE_ALLOCATED)
-      s <- maybe (return mempty) packCString sp
-      mapM_ slurmFree sp
-      return s)
+    <*> (packCString =<< (#peek node_info_t, alloc_tres_fmt_str) p)
     <*> (packCString =<< (#peek node_info_t, gres) p)
     <*> (packCString =<< (#peek node_info_t, gres_used) p)
     <*> (#peek node_info_t, real_memory) p

@@ -1,9 +1,9 @@
-FROM rockylinux:8
+FROM rockylinux:9
 ADD https://get.haskellstack.org/ /tmp/getstack
-ARG SLURM_VERSION=24.11.6
+ARG SLURM_VERSION=26.05.3
 ADD https://download.schedmd.com/slurm/slurm-$SLURM_VERSION.tar.bz2 /tmp
 RUN dnf -y install epel-release dnf-plugins-core && \
-    dnf config-manager --set-enabled powertools && \
+    dnf config-manager --set-enabled crb && \
     dnf -y install perl make automake gcc gcc-c++ gmp-devel libffi zlib xz tar git gnupg bzip2 zlib-devel munge-devel sssd-client && \
     sh /tmp/getstack && \
     useradd -u 450 slurm && \
